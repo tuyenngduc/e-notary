@@ -1,13 +1,14 @@
 package com.actvn.enotary;
 
-import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
-@SpringBootTest
+import org.junit.jupiter.api.Test;
+
 class ENotarySystemApplicationTests {
 
 	@Test
-	void contextLoads() {
+	void applicationCanBeConstructed() {
+		assertDoesNotThrow(ENotarySystemApplication::new);
 	}
 
 }

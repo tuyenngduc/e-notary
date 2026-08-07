@@ -1,3 +1,6 @@
+import type { ContractTemplate } from './admin';
+import type { Appointment, DocumentItem } from './request';
+
 export type VideoSessionStatus =
   | 'PENDING'
   | 'NOTARY_JOINED'
@@ -9,6 +12,11 @@ export type VideoSessionStatus =
 export interface VideoSessionResponse {
   sessionId: string;
   appointmentId: string | null;
+  appointment?: Appointment | null;
+  requestId?: string | null;
+  selectedTemplate?: ContractTemplate | null;
+  draftDocument?: DocumentItem | null;
+  requiresTemplate?: boolean;
   sessionToken: string;
   meetingUrl: string;
   roomId: string;
@@ -20,4 +28,12 @@ export interface VideoSessionResponse {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SignVideoDocumentResponse {
+  signedDocument: DocumentItem;
+  clientSigned: boolean;
+  notarySigned: boolean;
+  completed: boolean;
+  requestStatus: string;
 }

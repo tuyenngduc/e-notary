@@ -38,6 +38,12 @@ export default defineConfig({
           proxy.on('proxyReqWs', (proxyReq) => {
             proxyReq.removeHeader('origin');
           });
+          proxy.on('error', (err: NodeJS.ErrnoException) => {
+            if (err.code === 'ECONNRESET') {
+              return;
+            }
+            console.error('[vite] ws proxy error:', err);
+          });
         },
       },
     },

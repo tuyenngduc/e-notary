@@ -4,18 +4,22 @@ import com.actvn.enotary.dto.request.ScheduleAppointmentRequest;
 import com.actvn.enotary.dto.response.AppointmentResponse;
 import com.actvn.enotary.dto.response.DocumentRequirementResponse;
 import com.actvn.enotary.entity.Document;
+import com.actvn.enotary.entity.DocumentType;
 import com.actvn.enotary.entity.NotaryRequest;
+import com.actvn.enotary.entity.NotaryServiceType;
 import com.actvn.enotary.entity.User;
 import com.actvn.enotary.enums.AppointmentStatus;
 import com.actvn.enotary.enums.ContractType;
-import com.actvn.enotary.enums.DocType;
 import com.actvn.enotary.enums.Role;
 import com.actvn.enotary.enums.RequestStatus;
 import com.actvn.enotary.enums.ServiceType;
 import com.actvn.enotary.exception.AppException;
 import com.actvn.enotary.exception.ErrorCode;
 import com.actvn.enotary.repository.AppointmentRepository;
+import com.actvn.enotary.repository.ContractTemplateRepository;
 import com.actvn.enotary.repository.DocumentRepository;
+import com.actvn.enotary.repository.NotaryServiceDocumentRequirementRepository;
+import com.actvn.enotary.repository.NotaryServiceTypeRepository;
 import com.actvn.enotary.repository.NotaryRequestRepository;
 import com.actvn.enotary.repository.UserRepository;
 import com.actvn.enotary.repository.VideoSessionRepository;
@@ -39,6 +43,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class NotaryRequestServiceTest {
@@ -58,6 +63,21 @@ class NotaryRequestServiceTest {
      @Mock
      VideoSessionRepository videoSessionRepository;
 
+     @Mock
+     ContractTemplateRepository contractTemplateRepository;
+
+     @Mock
+     NotaryServiceTypeRepository notaryServiceTypeRepository;
+
+     @Mock
+     NotaryServiceDocumentRequirementRepository documentRequirementRepository;
+
+     @Mock
+     DocumentTypeService documentTypeService;
+
+     @Mock
+     NotificationService notificationService;
+
      NotaryRequestService service;
 
      @BeforeEach
@@ -65,10 +85,37 @@ class NotaryRequestServiceTest {
          service = new NotaryRequestService(
                  notaryRequestRepository,
                  userRepository,
-                 documentRepository,
-                 appointmentRepository,
-                 videoSessionRepository
-         );
+                  documentRepository,
+                   appointmentRepository,
+                   videoSessionRepository,
+                   contractTemplateRepository,
+                   notaryServiceTypeRepository,
+                   documentRequirementRepository,
+                   documentTypeService,
+                   notificationService
+           );
+         lenient().when(documentTypeService.getActiveForUpload(org.mockito.ArgumentMatchers.anyString()))
+                 .thenAnswer(invocation -> documentType(invocation.getArgument(0), DocumentTypeService.FILE_GROUP_DOCUMENT, DocumentTypeService.SOURCE_USER_UPLOAD));
+         lenient().when(documentTypeService.getByCode(org.mockito.ArgumentMatchers.anyString()))
+                 .thenAnswer(invocation -> documentType(invocation.getArgument(0), DocumentTypeService.FILE_GROUP_DOCUMENT, DocumentTypeService.SOURCE_USER_UPLOAD));
+      }
+
+     private DocumentType documentType(String code, String fileGroup, String source) {
+         DocumentType documentType = new DocumentType();
+         documentType.setCode(code);
+         documentType.setName(code);
+         documentType.setAllowedFileGroup(fileGroup);
+         documentType.setSource(source);
+         documentType.setIsActive(true);
+         return documentType;
+     }
+
+     private NotaryServiceType serviceTypeWithoutRequiredTemplate(String serviceCode) {
+         NotaryServiceType serviceType = new NotaryServiceType();
+         serviceType.setServiceCode(serviceCode);
+         serviceType.setRequiresTemplate(false);
+         serviceType.setIsActive(true);
+         return serviceType;
      }
 
     @Test
@@ -83,12 +130,15 @@ class NotaryRequestServiceTest {
         NotaryRequest request = new NotaryRequest();
         request.setRequestId(rid);
         request.setStatus(RequestStatus.NEW);
+        request.setContractType(ContractType.POWER_OF_ATTORNEY);
 
         when(userRepository.findByEmail("notary@example.com")).thenReturn(Optional.of(notary));
         when(notaryRequestRepository.findByIdForUpdate(rid)).thenReturn(Optional.of(request));
+        when(notaryServiceTypeRepository.findByServiceCode(ContractType.POWER_OF_ATTORNEY.name()))
+                .thenReturn(Optional.of(serviceTypeWithoutRequiredTemplate(ContractType.POWER_OF_ATTORNEY.name())));
         when(documentRepository.findDocTypesByRequestId(rid)).thenReturn(List.of(
-                com.actvn.enotary.enums.DocType.ID_CARD,
-                com.actvn.enotary.enums.DocType.DRAFT_CONTRACT
+                "ID_CARD",
+                "DRAFT_CONTRACT"
         ));
         when(notaryRequestRepository.save(any(NotaryRequest.class))).thenAnswer(i -> i.getArgument(0));
 
@@ -110,10 +160,13 @@ class NotaryRequestServiceTest {
         NotaryRequest request = new NotaryRequest();
         request.setRequestId(rid);
         request.setStatus(RequestStatus.NEW);
+        request.setContractType(ContractType.POWER_OF_ATTORNEY);
 
         when(userRepository.findByEmail("notary@example.com")).thenReturn(Optional.of(notary));
         when(notaryRequestRepository.findByIdForUpdate(rid)).thenReturn(Optional.of(request));
-        when(documentRepository.findDocTypesByRequestId(rid)).thenReturn(List.of(com.actvn.enotary.enums.DocType.ID_CARD));
+        when(notaryServiceTypeRepository.findByServiceCode(ContractType.POWER_OF_ATTORNEY.name()))
+                .thenReturn(Optional.of(serviceTypeWithoutRequiredTemplate(ContractType.POWER_OF_ATTORNEY.name())));
+        when(documentRepository.findDocTypesByRequestId(rid)).thenReturn(List.of("ID_CARD"));
 
         AppException ex = assertThrows(AppException.class, () -> service.acceptRequest(rid, "notary@example.com"));
         assertEquals(400, ex.getStatus().value());
@@ -199,13 +252,13 @@ class NotaryRequestServiceTest {
 
         when(notaryRequestRepository.findById(requestId)).thenReturn(Optional.of(request));
         when(documentRepository.findDocTypesByRequestId(requestId))
-                .thenReturn(List.of(DocType.ID_CARD, DocType.ID_CARD));
+                .thenReturn(List.of("ID_CARD", "ID_CARD"));
 
         DocumentRequirementResponse response = service.getDocumentRequirements(requestId);
 
-        assertEquals(List.of(DocType.ID_CARD, DocType.PROPERTY_PAPER, DocType.DRAFT_CONTRACT), response.getRequiredDocTypes());
-        assertEquals(List.of(DocType.ID_CARD), response.getUploadedDocTypes());
-        assertEquals(List.of(DocType.PROPERTY_PAPER, DocType.DRAFT_CONTRACT), response.getMissingDocTypes());
+        assertEquals(List.of("ID_CARD", "DRAFT_CONTRACT", "PROPERTY_PAPER"), response.getRequiredDocTypes());
+        assertEquals(List.of("ID_CARD"), response.getUploadedDocTypes());
+        assertEquals(List.of("DRAFT_CONTRACT", "PROPERTY_PAPER"), response.getMissingDocTypes());
         assertFalse(response.isReadyForAccept());
     }
 
@@ -228,7 +281,7 @@ class NotaryRequestServiceTest {
 
         MockMultipartFile file = new MockMultipartFile("file", "doc.txt", "text/plain", "data".getBytes());
         AppException ex = assertThrows(AppException.class,
-                () -> service.uploadDocument(requestId, "client@example.com", file, DocType.DRAFT_CONTRACT));
+                () -> service.uploadDocument(requestId, "client@example.com", file, "DRAFT_CONTRACT"));
 
         assertEquals(409, ex.getStatus().value());
         assertEquals(ErrorCode.REQUEST_TERMINAL_STATUS.name(), ex.getCode());
@@ -280,7 +333,7 @@ class NotaryRequestServiceTest {
         Document document = new Document();
         document.setDocumentId(documentId);
         document.setRequest(request);
-        document.setDocType(DocType.SIGNED_DOCUMENT);
+        document.setDocType("SIGNED_DOCUMENT");
 
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
         when(userRepository.findByEmail("client@example.com")).thenReturn(Optional.of(owner));
@@ -311,12 +364,12 @@ class NotaryRequestServiceTest {
         Document document = new Document();
         document.setDocumentId(documentId);
         document.setRequest(request);
-        document.setDocType(DocType.SESSION_VIDEO);
+        document.setDocType("SESSION_VIDEO");
 
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
         when(userRepository.findByEmail("client@example.com")).thenReturn(Optional.of(owner));
         when(documentRepository.findDocTypesByRequestId(requestId))
-                .thenReturn(List.of(DocType.SESSION_VIDEO, DocType.SIGNED_DOCUMENT));
+                .thenReturn(List.of("SESSION_VIDEO", "SIGNED_DOCUMENT"));
 
         MockMultipartFile file = new MockMultipartFile("file", "video.mp4", "video/mp4", "data".getBytes());
         AppException ex = assertThrows(AppException.class,
@@ -344,12 +397,14 @@ class NotaryRequestServiceTest {
         Document document = new Document();
         document.setDocumentId(documentId);
         document.setRequest(request);
-        document.setDocType(DocType.SESSION_VIDEO);
+        document.setDocType("SESSION_VIDEO");
+        when(documentTypeService.getActiveForUpload("SESSION_VIDEO"))
+                .thenReturn(documentType("SESSION_VIDEO", DocumentTypeService.FILE_GROUP_VIDEO, DocumentTypeService.SOURCE_INTERNAL));
 
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
         when(userRepository.findByEmail("client@example.com")).thenReturn(Optional.of(owner));
         when(documentRepository.findDocTypesByRequestId(requestId))
-                .thenReturn(List.of(DocType.SESSION_VIDEO));
+                .thenReturn(List.of("SESSION_VIDEO"));
         when(documentRepository.save(any(Document.class))).thenAnswer(i -> i.getArgument(0));
 
         MockMultipartFile file = new MockMultipartFile("file", "video.mp4", "video/mp4", "data".getBytes());

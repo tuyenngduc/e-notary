@@ -25,13 +25,16 @@ export function LoginPage() {
     };
 
     const baseMessage = toApiErrorMessage(error, 'Đăng nhập thất bại');
+    const isInvalidCredentials = baseMessage.toLowerCase().includes('email hoặc mật khẩu không chính xác');
 
     const lines: string[] = [];
-    lines.push(`origin=${window.location.origin}`);
-    lines.push(`API_BASE_URL=${API_BASE_URL || '(same-origin via Vite proxy)'}`);
-    if (axiosLike?.isAxiosError) {
-      lines.push(`axiosStatus=${axiosLike.response?.status ?? '(no response - network/CORS?)'}`);
-      lines.push(`axiosRequest=${axiosLike.config?.method ?? ''} ${axiosLike.config?.baseURL ?? ''}${axiosLike.config?.url ?? ''}`);
+    if (!isInvalidCredentials) {
+      lines.push(`origin=${window.location.origin}`);
+      lines.push(`API_BASE_URL=${API_BASE_URL || '(same-origin via Vite proxy)'}`);
+      if (axiosLike?.isAxiosError) {
+        lines.push(`axiosStatus=${axiosLike.response?.status ?? '(no response - network/CORS?)'}`);
+        lines.push(`axiosRequest=${axiosLike.config?.method ?? ''} ${axiosLike.config?.baseURL ?? ''}${axiosLike.config?.url ?? ''}`);
+      }
     }
 
     const friendly =
@@ -80,7 +83,7 @@ export function LoginPage() {
         <form className="form-stack" onSubmit={onSubmit} noValidate>
           <label className="field">
             <span>Email</span>
-            <input type="email" placeholder="email@example.com" {...register('email')} />
+            <input type="email" placeholder="Vui lòng nhập email" {...register('email')} />
             {errors.email && <small>{errors.email.message}</small>}
           </label>
 

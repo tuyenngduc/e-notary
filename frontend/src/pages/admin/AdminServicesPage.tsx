@@ -10,6 +10,7 @@ const initialFormState: NotaryServiceTypeRequest = {
   basePrice: 0,
   description: '',
   isActive: true,
+  requiresTemplate: true,
 };
 
 export function AdminServicesPage() {
@@ -55,6 +56,7 @@ export function AdminServicesPage() {
       basePrice: service.basePrice,
       description: service.description || '',
       isActive: service.isActive,
+      requiresTemplate: service.requiresTemplate,
     });
     setErrorMsg('');
     setShowModal(true);
@@ -97,7 +99,7 @@ export function AdminServicesPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
           <div>
             <h1 style={{ fontSize: '1.75rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Bảng giá Dịch vụ</h1>
-            <p className="muted-text">Quản lý danh mục loại hồ sơ công chứng và giá tiền.</p>
+            <p className="muted-text">Quản lý danh mục dịch vụ công chứng và giá tiền.</p>
           </div>
           <button 
             className="primary-btn" 

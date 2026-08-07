@@ -1,5 +1,6 @@
 package com.actvn.enotary.controller;
 
+import com.actvn.enotary.dto.request.AcceptNotaryRequestRequest;
 import com.actvn.enotary.dto.request.NotaryRequestCreateRequest;
 import com.actvn.enotary.dto.request.RejectNotaryRequestRequest;
 import com.actvn.enotary.dto.request.ScheduleAppointmentRequest;
@@ -11,12 +12,12 @@ import com.actvn.enotary.dto.response.DocumentResponse;
 import com.actvn.enotary.dto.response.NotaryRequestResponse;
 import com.actvn.enotary.entity.Document;
 import com.actvn.enotary.entity.NotaryRequest;
-import com.actvn.enotary.enums.DocType;
 import com.actvn.enotary.enums.RequestStatus;
 import com.actvn.enotary.enums.VerificationStatus;
 import com.actvn.enotary.exception.AppException;
 import com.actvn.enotary.exception.ErrorCode;
 import com.actvn.enotary.security.CustomUserDetails;
+import com.actvn.enotary.service.DocumentTypeService;
 import com.actvn.enotary.service.NotaryRequestService;
 import com.actvn.enotary.service.UserService;
 import jakarta.validation.Valid;
@@ -56,13 +57,22 @@ public class NotaryRequestController {
     }
 
     private NotaryRequestResponse toResponse(NotaryRequest request) {
-        String meetingUrl = notaryRequestService.getMeetingUrlByRequestId(request.getRequestId());
-        return NotaryRequestResponse.fromEntity(request, null, meetingUrl);
+        AppointmentResponse appointment = notaryRequestService.getAppointmentResponseByRequestId(request.getRequestId()).orElse(null);
+        String meetingUrl = shouldExposeMeetingUrl(request, appointment) ? appointment.getMeetingUrl() : null;
+        return NotaryRequestResponse.fromEntity(request, null, meetingUrl, appointment, notaryRequestService.requiresTemplate(request));
     }
 
     private NotaryRequestResponse toResponse(NotaryRequest request, DocumentRequirementResponse requirements) {
-        String meetingUrl = notaryRequestService.getMeetingUrlByRequestId(request.getRequestId());
-        return NotaryRequestResponse.fromEntity(request, requirements, meetingUrl);
+        AppointmentResponse appointment = notaryRequestService.getAppointmentResponseByRequestId(request.getRequestId()).orElse(null);
+        String meetingUrl = shouldExposeMeetingUrl(request, appointment) ? appointment.getMeetingUrl() : null;
+        return NotaryRequestResponse.fromEntity(request, requirements, meetingUrl, appointment, notaryRequestService.requiresTemplate(request));
+    }
+
+    private boolean shouldExposeMeetingUrl(NotaryRequest request, AppointmentResponse appointment) {
+        return appointment != null
+                && appointment.getMeetingUrl() != null
+                && appointment.getStatus() == com.actvn.enotary.enums.AppointmentStatus.PENDING
+                && (request.getStatus() == RequestStatus.SCHEDULED || request.getStatus() == RequestStatus.IN_VIDEO_CALL);
     }
 
     private boolean canAccessRequestForRead(CustomUserDetails userDetails, String email, NotaryRequest request) {
@@ -172,9 +182,21 @@ public class NotaryRequestController {
 
         List<DocumentResponse> documents = notaryRequestService.getDocumentsByRequestId(id)
                 .stream()
+                .filter(document -> canExposeDocumentToUser(userDetails, r, document))
                 .map(DocumentResponse::fromEntity)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(ApiResponseUtil.success(documents));
+    }
+
+    private boolean canExposeDocumentToUser(CustomUserDetails userDetails, NotaryRequest request, Document document) {
+        boolean signedDocument = DocumentTypeService.SIGNED_DOCUMENT.equals(document.getDocType());
+        if (!signedDocument) {
+            return true;
+        }
+
+        String role = userDetails.getRole() != null ? userDetails.getRole().name() : "";
+        boolean isClient = "CLIENT".equals(role);
+        return !isClient || request.getStatus() == RequestStatus.COMPLETED;
     }
 
     @PostMapping(value = "/{id}/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -182,7 +204,7 @@ public class NotaryRequestController {
             Authentication authentication,
             @PathVariable("id") UUID id,
             @RequestParam("file") MultipartFile file,
-            @RequestParam("docType") DocType docType
+            @RequestParam("docType") String docType
     ) {
         if (authentication == null || !(authentication.getPrincipal() instanceof CustomUserDetails)) {
             throw new AppException(ErrorCode.INVALID_AUTHENTICATION);
@@ -250,7 +272,8 @@ public class NotaryRequestController {
     @PostMapping("/{id}/accept")
     public ResponseEntity<ApiResponse<NotaryRequestResponse>> acceptRequest(
             Authentication authentication,
-            @PathVariable("id") UUID id) {
+            @PathVariable("id") UUID id,
+            @Valid @RequestBody(required = false) AcceptNotaryRequestRequest request) {
         if (authentication == null || !(authentication.getPrincipal() instanceof CustomUserDetails)) {
             throw new AppException(ErrorCode.INVALID_AUTHENTICATION);
         }
@@ -265,7 +288,11 @@ public class NotaryRequestController {
         // Notary must be VERIFIED to accept requests
         assertNotaryVerified(userDetails);
 
-        NotaryRequest updated = notaryRequestService.acceptRequest(id, userDetails.getUsername());
+        NotaryRequest updated = notaryRequestService.acceptRequest(
+                id,
+                userDetails.getUsername(),
+                request != null ? request.getTemplateId() : null
+        );
         return ResponseEntity.ok(ApiResponseUtil.success(toResponse(updated), "Tiếp nhận yêu cầu thành công"));
     }
 

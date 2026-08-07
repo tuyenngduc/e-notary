@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '../../components/DashboardLayout';
-import { listMyAppointmentsApi } from '../../features/requests/requestApi';
+import { listMyAppointmentsApi, verifyVideoTokenApi } from '../../features/requests/requestApi';
 import { toApiErrorMessage } from '../../lib/apiError';
 import { toContractTypeLabel, toServiceTypeLabel } from '../../lib/enumLabels';
 import { getVideoRoomPathFromMeetingUrl } from '../../lib/videoRoom';
@@ -17,10 +17,22 @@ function formatDateObj(value: string) {
   };
 }
 
+function getVideoTokenFromMeetingUrl(meetingUrl: string | null | undefined) {
+  if (!meetingUrl || !meetingUrl.trim()) return '';
+
+  try {
+    const url = new URL(meetingUrl, window.location.origin);
+    return url.searchParams.get('token') || '';
+  } catch {
+    return '';
+  }
+}
+
 export function NotaryAppointmentsPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [openingAppointmentId, setOpeningAppointmentId] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -39,6 +51,34 @@ export function NotaryAppointmentsPage() {
 
     void fetchAppointments();
   }, []);
+
+  const handleOpenVideoRoom = async (appt: Appointment, videoRoomPath: string) => {
+    if (appt.status === 'FINISHED' || appt.status === 'CANCELLED') {
+      setError('Lịch hẹn này đã kết thúc hoặc đã hủy, không thể mở lại phòng họp.');
+      return;
+    }
+
+    const token = getVideoTokenFromMeetingUrl(appt.meetingUrl);
+    if (!token) {
+      setError('Thiếu token truy cập phòng họp. Vui lòng mở phòng từ lịch hẹn hợp lệ.');
+      return;
+    }
+
+    setOpeningAppointmentId(appt.appointmentId);
+    setError('');
+    try {
+      const session = await verifyVideoTokenApi(token);
+      if (session.status === 'FINISHED' || session.status === 'CANCELLED' || session.endedAt) {
+        setError('Phiên video đã kết thúc hoặc đã hủy, không thể mở lại phòng họp.');
+        return;
+      }
+      navigate(videoRoomPath);
+    } catch (err) {
+      setError(toApiErrorMessage(err, 'Không thể kiểm tra trạng thái phòng họp.'));
+    } finally {
+      setOpeningAppointmentId(null);
+    }
+  };
 
   return (
     <DashboardLayout role="notary">
@@ -69,6 +109,7 @@ export function NotaryAppointmentsPage() {
               const { date, time } = formatDateObj(appt.scheduledTime);
               const isOnline = appt.serviceType === 'ONLINE';
               const videoRoomPath = getVideoRoomPathFromMeetingUrl(appt.meetingUrl);
+              const isClosedAppointment = appt.status === 'FINISHED' || appt.status === 'CANCELLED';
 
               return (
                 <div className="list-row" key={appt.appointmentId} style={{ alignItems: 'flex-start' }}>
@@ -102,14 +143,21 @@ export function NotaryAppointmentsPage() {
 
                   <div className="doc-actions" style={{ flexDirection: 'column', gap: '0.75rem', minWidth: '160px' }}>
                     {isOnline && videoRoomPath ? (
-                      <button
-                        type="button"
-                        className="primary-btn"
-                        style={{ justifyContent: 'center' }}
-                        onClick={() => navigate(videoRoomPath)}
-                      >
-                        Mở phòng họp
-                      </button>
+                      isClosedAppointment ? (
+                        <span className="status-badge badge-gray" style={{ textAlign: 'center' }}>
+                          Phòng đã đóng
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="primary-btn"
+                          style={{ justifyContent: 'center' }}
+                          disabled={openingAppointmentId === appt.appointmentId}
+                          onClick={() => void handleOpenVideoRoom(appt, videoRoomPath)}
+                        >
+                          {openingAppointmentId === appt.appointmentId ? 'Đang kiểm tra...' : 'Mở phòng họp'}
+                        </button>
+                      )
                     ) : null}
 
                     <button

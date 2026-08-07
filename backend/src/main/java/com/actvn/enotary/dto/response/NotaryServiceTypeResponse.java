@@ -16,6 +16,7 @@ public class NotaryServiceTypeResponse {
     private BigDecimal basePrice;
     private String description;
     private Boolean isActive;
+    private Boolean requiresTemplate;
 
     public static NotaryServiceTypeResponse fromEntity(NotaryServiceType entity) {
         return NotaryServiceTypeResponse.builder()
@@ -25,6 +26,7 @@ public class NotaryServiceTypeResponse {
                 .basePrice(entity.getBasePrice())
                 .description(entity.getDescription())
                 .isActive(entity.getIsActive())
+                .requiresTemplate(entity.getRequiresTemplate())
                 .build();
     }
 }

@@ -26,5 +26,7 @@ public class Payment {
     private PaymentStatus paymentStatus = PaymentStatus.PENDING;
 
     private String transactionReference;
+    private String paymentMethod;
     private OffsetDateTime createdAt = OffsetDateTime.now();
+    private OffsetDateTime paidAt;
 }

@@ -29,6 +29,9 @@ public class NotaryServiceType {
     @Column(nullable = false)
     private Boolean isActive = true;
 
+    @Column(nullable = false)
+    private Boolean requiresTemplate = true;
+
     @Column(updatable = false)
     private OffsetDateTime createdAt = OffsetDateTime.now();
 

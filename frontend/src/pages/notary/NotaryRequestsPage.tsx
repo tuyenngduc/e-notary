@@ -131,7 +131,7 @@ export function NotaryRequestsPage() {
             className={`tab-btn ${tab === 'processing' ? 'tab-btn-active' : ''}`}
             onClick={() => setTab('processing')}
           >
-            Hàng đợi tiếp nhận
+            Đang chờ tiếp nhận
           </button>
           <button
             type="button"

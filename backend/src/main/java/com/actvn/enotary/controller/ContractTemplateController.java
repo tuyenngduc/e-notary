@@ -62,6 +62,15 @@ public class ContractTemplateController {
 
     @GetMapping("/api/templates/{id}/download")
     public ResponseEntity<?> downloadTemplate(@PathVariable UUID id) {
+        return serveTemplateFile(id, false);
+    }
+
+    @GetMapping("/api/templates/{id}/view")
+    public ResponseEntity<?> viewTemplate(@PathVariable UUID id) {
+        return serveTemplateFile(id, true);
+    }
+
+    private ResponseEntity<?> serveTemplateFile(UUID id, boolean inline) {
         ContractTemplate template = contractTemplateService.getById(id);
 
         try {
@@ -76,7 +85,7 @@ public class ContractTemplateController {
             }
 
             PathResource resource = new PathResource(file);
-            String disposition = "attachment; filename=\"" + file.getFileName().toString() + "\"";
+            String disposition = (inline ? "inline" : "attachment") + "; filename=\"" + file.getFileName().toString() + "\"";
 
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, disposition)

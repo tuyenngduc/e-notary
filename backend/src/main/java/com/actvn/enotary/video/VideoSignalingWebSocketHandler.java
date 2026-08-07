@@ -42,7 +42,7 @@ public class VideoSignalingWebSocketHandler extends TextWebSocketHandler {
                 case JOIN -> handleJoin(session, payload);
                 case OFFER, ANSWER, ICE -> relay(session, payload);
                 case LEAVE -> handleLeave(session);
-                case END -> relay(session, payload);
+                case END, SESSION_CONTROL, DOCUMENT_PRESENTATION, CLIENT_CONSENT, SIGNATURE_COMPLETED, EVIDENCE_CAPTURED, RECORDING_STATE -> relay(session, payload);
                 default -> {
                     log.warn("[Signaling] Unsupported signal type: {}", payload.getType());
                     sendError(session, "Tín hiệu không được hỗ trợ.");

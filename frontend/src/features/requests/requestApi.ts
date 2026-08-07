@@ -8,6 +8,7 @@ import type {
   RequestStatus,
 } from '../../types/request';
 import type { VideoSessionResponse } from '../../types/video';
+import type { SignVideoDocumentResponse } from '../../types/video';
 
 interface ApiEnvelope<T> {
   status: number;
@@ -104,6 +105,11 @@ export async function downloadDocumentApi(documentId: string): Promise<Blob> {
   return response.data;
 }
 
+export async function viewDocumentApi(documentId: string): Promise<Blob> {
+  const response = await api.get<Blob>(`/api/documents/${documentId}/view`, { responseType: 'blob' });
+  return response.data;
+}
+
 export async function listMyAppointmentsApi(): Promise<import('../../types/request').Appointment[]> {
   const response = await api.get<ApiEnvelope<import('../../types/request').Appointment[]>>('/api/appointments/me');
   return response.data.data;
@@ -126,6 +132,33 @@ export async function joinVideoRoomApi(roomId: string, token: string): Promise<V
 export async function endVideoSessionApi(sessionId: string, reason?: string): Promise<VideoSessionResponse> {
   const response = await api.post<ApiEnvelope<VideoSessionResponse>>(`/api/video/sessions/${sessionId}/end`, null, {
     params: { reason: reason?.trim() || 'Kết thúc từ giao diện' },
+  });
+  return response.data.data;
+}
+
+export async function saveVideoEvidenceApi(sessionId: string, imageData: string): Promise<DocumentItem> {
+  const response = await api.post<ApiEnvelope<DocumentItem>>(`/api/video/sessions/${sessionId}/evidence`, {
+    imageData,
+  });
+  return response.data.data;
+}
+
+export async function signVideoDocumentApi(
+  sessionId: string,
+  documentId: string,
+  signatureValue: string,
+  placement: {
+    pageNumber: number;
+    xPercent: number;
+    yPercent: number;
+    widthPercent: number;
+    heightPercent: number;
+  },
+): Promise<SignVideoDocumentResponse> {
+  const response = await api.post<ApiEnvelope<SignVideoDocumentResponse>>(`/api/video/sessions/${sessionId}/signatures`, {
+    documentId,
+    signatureValue,
+    ...placement,
   });
   return response.data.data;
 }

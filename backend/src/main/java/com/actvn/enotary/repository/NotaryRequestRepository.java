@@ -7,6 +7,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -37,4 +38,8 @@ public interface NotaryRequestRepository extends JpaRepository<NotaryRequest, UU
 
     @Query("SELECT r.serviceType, COUNT(r) FROM NotaryRequest r GROUP BY r.serviceType")
     List<Object[]> countRequestsByServiceType();
+
+    @Modifying
+    @Query("update NotaryRequest r set r.selectedTemplate = null where r.selectedTemplate.id = :templateId")
+    int clearSelectedTemplate(@Param("templateId") UUID templateId);
 }

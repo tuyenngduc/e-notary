@@ -1,0 +1,100 @@
+@startuml
+title Use Case tổng quát hệ thống công chứng điện tử tích hợp Blockchain và chữ ký hậu lượng tử
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam shadowing false
+
+actor "Người dân" as Citizen
+actor "Công chứng viên" as Notary
+actor "Quản trị viên" as Admin
+
+rectangle "Hệ thống công chứng điện tử tích hợp Blockchain và chữ ký hậu lượng tử" {
+  package "Người dân" {
+    usecase "Đăng ký / đăng nhập" as UC_Login
+    usecase "Tạo yêu cầu công chứng" as UC_Create
+    usecase "Tải lên tài liệu" as UC_Upload
+    usecase "Theo dõi trạng thái hồ sơ" as UC_Track
+    usecase "Tham gia đối soát trực tuyến" as UC_OnlineReview
+    usecase "Ký số văn bản" as UC_CitizenSign
+    usecase "Thanh toán" as UC_Pay
+    usecase "Nhận văn bản công chứng điện tử" as UC_Receive
+    usecase "Xác minh tài liệu công chứng" as UC_VerifyDoc
+  }
+
+  package "Công chứng viên" {
+    usecase "Tiếp nhận hồ sơ" as UC_Accept
+    usecase "Kiểm tra hồ sơ" as UC_Check
+    usecase "Yêu cầu bổ sung hồ sơ" as UC_RequestMore
+    usecase "Thiết lập phiên đối soát trực tuyến" as UC_SetupReview
+    usecase "Xác thực người tham gia" as UC_AuthParticipant
+    usecase "Ký số xác nhận công chứng" as UC_NotarySign
+    usecase "Ghi dữ liệu xác minh lên Blockchain" as UC_Record
+  }
+
+  package "Quản trị viên" {
+    usecase "Quản lý người dùng" as UC_UserAdmin
+    usecase "Quản lý dịch vụ công chứng" as UC_ServiceAdmin
+    usecase "Quản lý mẫu văn bản" as UC_TemplateAdmin
+    usecase "Quản lý hồ sơ" as UC_RequestAdmin
+    usecase "Thống kê và giám sát hệ thống" as UC_Monitor
+  }
+
+  package "Blockchain và Post-Quantum Cryptography nội bộ" {
+    usecase "Tạo hash văn bản công chứng" as UC_Hash
+    usecase "Tạo transaction chứa hash" as UC_Tx
+    usecase "Ký transaction bằng Hybrid Signature" as UC_Hybrid
+    usecase "Ký / xác minh ECDSA transaction" as UC_ECDSA
+    usecase "Ký / xác minh ML-DSA/PQC" as UC_PQSIG
+    usecase "Ghi transaction lên Blockchain" as UC_Store
+    usecase "Truy xuất transaction Blockchain" as UC_Query
+    usecase "Kiểm tra hash và tính toàn vẹn" as UC_Integrity
+  }
+}
+
+Citizen --> UC_Login
+Citizen --> UC_Create
+Citizen --> UC_Upload
+Citizen --> UC_Track
+Citizen --> UC_OnlineReview
+Citizen --> UC_CitizenSign
+Citizen --> UC_Pay
+Citizen --> UC_Receive
+Citizen --> UC_VerifyDoc
+
+Notary --> UC_Accept
+Notary --> UC_Check
+Notary --> UC_RequestMore
+Notary --> UC_SetupReview
+Notary --> UC_AuthParticipant
+Notary --> UC_NotarySign
+Notary --> UC_Record
+
+Admin --> UC_UserAdmin
+Admin --> UC_ServiceAdmin
+Admin --> UC_TemplateAdmin
+Admin --> UC_RequestAdmin
+Admin --> UC_Monitor
+
+UC_VerifyDoc ..> UC_Hash : <<include>>
+UC_VerifyDoc ..> UC_Query : <<include>>
+UC_VerifyDoc ..> UC_Integrity : <<include>>
+UC_NotarySign ..> UC_Hash : <<include>>
+UC_Record ..> UC_Tx : <<include>>
+UC_Tx ..> UC_Hybrid : <<include>>
+UC_Hybrid ..> UC_ECDSA : <<include>>
+UC_Hybrid ..> UC_PQSIG : <<include>>
+UC_Hybrid ..> UC_Store : <<include>>
+UC_Monitor ..> UC_Query : <<include>>
+UC_Monitor ..> UC_Integrity : <<include>>
+UC_Integrity ..> UC_ECDSA : <<include>>
+UC_Integrity ..> UC_PQSIG : <<include>>
+
+note bottom of UC_Hybrid
+Văn bản công chứng
+→ SHA-256 Hash
+→ Transaction chứa Hash
+→ Ký transaction (ECDSA + PQC)
+→ Blockchain Verification
+end note
+@enduml

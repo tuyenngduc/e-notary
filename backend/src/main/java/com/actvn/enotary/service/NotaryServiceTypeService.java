@@ -15,16 +15,23 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class NotaryServiceTypeService {
     private final NotaryServiceTypeRepository repository;
+    private final DocumentRequirementConfigService documentRequirementConfigService;
 
     public Page<NotaryServiceType> getAll(Pageable pageable) {
         return repository.findAll(pageable);
+    }
+
+    public Page<NotaryServiceType> getActive(Pageable pageable) {
+        return repository.findByIsActiveTrue(pageable);
     }
 
     public NotaryServiceType create(NotaryServiceType request) {
         if (repository.findByServiceCode(request.getServiceCode()).isPresent()) {
             throw new AppException("Mã dịch vụ đã tồn tại", HttpStatus.BAD_REQUEST);
         }
-        return repository.save(request);
+        NotaryServiceType created = repository.save(request);
+        documentRequirementConfigService.ensureDefaultRequirements(created);
+        return created;
     }
 
     public NotaryServiceType update(UUID id, NotaryServiceType request) {
@@ -41,6 +48,7 @@ public class NotaryServiceTypeService {
         existing.setBasePrice(request.getBasePrice());
         existing.setDescription(request.getDescription());
         existing.setIsActive(request.getIsActive());
+        existing.setRequiresTemplate(request.getRequiresTemplate() != null ? request.getRequiresTemplate() : true);
 
         return repository.save(existing);
     }

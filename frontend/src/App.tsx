@@ -7,12 +7,15 @@ import { getDefaultRouteByRole } from './lib/roleRedirect';
 import { HomePage } from './pages/HomePage';
 import { AdminDashboardPage } from './pages/admin/AdminDashboardPage';
 import { AdminUsersPage } from './pages/admin/AdminUsersPage';
-import { AdminServicesPage } from './pages/admin/AdminServicesPage';
-import { AdminTemplatesPage } from './pages/admin/AdminTemplatesPage';
+import { AdminOfficesPage } from './pages/admin/AdminOfficesPage';
+import { AdminDocumentRequirementsPage } from './pages/admin/AdminDocumentRequirementsPage';
+import { AdminDocumentTypesPage } from './pages/admin/AdminDocumentTypesPage';
+import { AdminBlockchainPage } from './pages/admin/AdminBlockchainPage';
 import { CustomerDashboardPage } from './pages/customer/CustomerDashboardPage';
 import { CustomerRequestsPage } from './pages/customer/CustomerRequestsPage';
 import { NewRequestPage } from './pages/customer/NewRequestPage';
 import { CustomerRequestDetailPage } from './pages/customer/CustomerRequestDetailPage';
+import { CustomerNotificationsPage } from './pages/customer/CustomerNotificationsPage';
 import { NotaryDashboardPage } from './pages/notary/NotaryDashboardPage';
 import { NotaryRequestDetailPage } from './pages/notary/NotaryRequestDetailPage';
 import { NotaryRequestsPage } from './pages/notary/NotaryRequestsPage';
@@ -91,6 +94,14 @@ export function App() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/customer/notifications"
+        element={
+          <ProtectedRoute allowedRoles={['CLIENT']}>
+            <CustomerNotificationsPage />
+          </ProtectedRoute>
+        }
+      />
 
       <Route
         path="/notary/dashboard"
@@ -145,7 +156,39 @@ export function App() {
         path="/admin/services"
         element={
           <ProtectedRoute allowedRoles={['ADMIN']}>
-            <AdminServicesPage />
+            <Navigate to="/admin/document-requirements" replace />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/offices"
+        element={
+          <ProtectedRoute allowedRoles={['ADMIN']}>
+            <AdminOfficesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/document-types"
+        element={
+          <ProtectedRoute allowedRoles={['ADMIN']}>
+            <AdminDocumentTypesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/document-requirements"
+        element={
+          <ProtectedRoute allowedRoles={['ADMIN']}>
+            <AdminDocumentRequirementsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/blockchain"
+        element={
+          <ProtectedRoute allowedRoles={['ADMIN']}>
+            <AdminBlockchainPage />
           </ProtectedRoute>
         }
       />
@@ -153,7 +196,7 @@ export function App() {
         path="/admin/templates"
         element={
           <ProtectedRoute allowedRoles={['ADMIN']}>
-            <AdminTemplatesPage />
+            <Navigate to="/admin/document-requirements" replace />
           </ProtectedRoute>
         }
       />

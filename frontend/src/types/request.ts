@@ -1,3 +1,5 @@
+import type { ContractTemplate } from './admin';
+
 export type RequestStatus =
   | 'NEW'
   | 'PROCESSING'
@@ -15,18 +17,32 @@ export type ServiceType = 'ONLINE' | 'OFFLINE';
 export type ContractType =
   | 'TRANSFER_OF_PROPERTY'
   | 'POWER_OF_ATTORNEY'
+  | 'PERSONAL_COMMITMENT'
+  | 'SIGNATURE_CERTIFICATION'
+  | 'E_COPY_CERTIFICATION'
   | 'LOAN_AGREEMENT'
   | 'WILL'
+  | 'CIVIL_AGREEMENT'
   | 'MARRIAGE_CONTRACT'
   | 'BUSINESS_CONTRACT'
   | 'OTHER';
 
-export type DocType = 'ID_CARD' | 'PROPERTY_PAPER' | 'DRAFT_CONTRACT' | 'SIGNED_DOCUMENT' | 'SESSION_VIDEO';
+export type DocType = string;
+
+export interface RequiredDocumentItem {
+  code: DocType;
+  name: string;
+  source: 'USER_UPLOAD' | 'SYSTEM_GENERATED' | 'INTERNAL' | string;
+  allowedFileGroup: 'DOCUMENT' | 'IMAGE' | 'VIDEO' | 'ANY' | string;
+  uploaded: boolean;
+  missing: boolean;
+}
 
 export interface DocumentRequirementResponse {
   requiredDocTypes: DocType[];
   uploadedDocTypes: DocType[];
   missingDocTypes: DocType[];
+  requiredDocuments?: RequiredDocumentItem[];
   readyForAccept: boolean;
 }
 
@@ -36,6 +52,7 @@ export interface NotaryRequest {
   notaryId: string | null;
   serviceType: ServiceType;
   contractType: ContractType;
+  requiresTemplate: boolean;
   description: string;
   status: RequestStatus;
   rejectionReason: string | null;
@@ -44,12 +61,18 @@ export interface NotaryRequest {
   updatedAt: string;
   documentIds: string[];
   documentRequirements?: DocumentRequirementResponse;
+  selectedTemplate?: ContractTemplate | null;
+  appointment?: Appointment | null;
 }
 
 export interface DocumentItem {
   documentId: string;
   requestId: string;
   filePath: string;
+  originalFileName?: string | null;
+  displayName?: string | null;
+  contentType?: string | null;
+  fileSize?: number | null;
   absolutePath: string | null;
   docType: DocType;
   fileHash: string;
@@ -71,7 +94,7 @@ export interface PagedData<T> {
   number: number;
 }
 
-export type AppointmentStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED';
+export type AppointmentStatus = 'PENDING' | 'FINISHED' | 'CANCELLED';
 
 export interface Appointment {
   appointmentId: string;
@@ -84,4 +107,7 @@ export interface Appointment {
   status: AppointmentStatus;
   createdAt: string;
   clientName: string | null;
+  notaryName: string | null;
+  selectedTemplate?: ContractTemplate | null;
+  requiresTemplate?: boolean;
 }

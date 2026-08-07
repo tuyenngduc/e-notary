@@ -12,7 +12,6 @@ import com.actvn.enotary.enums.AppointmentStatus;
 import com.actvn.enotary.enums.ContractType;
 import com.actvn.enotary.enums.RequestStatus;
 import com.actvn.enotary.enums.ServiceType;
-import com.actvn.enotary.enums.DocType;
 import com.actvn.enotary.enums.VerificationStatus;
 import com.actvn.enotary.exception.AppException;
 import com.actvn.enotary.exception.ErrorCode;
@@ -114,9 +113,9 @@ class NotaryRequestControllerTest {
         created.setUpdatedAt(OffsetDateTime.now());
 
         DocumentRequirementResponse documentRequirements = DocumentRequirementResponse.builder()
-                .requiredDocTypes(List.of(DocType.ID_CARD, DocType.PROPERTY_PAPER, DocType.DRAFT_CONTRACT))
+                .requiredDocTypes(List.of("ID_CARD", "PROPERTY_PAPER", "DRAFT_CONTRACT"))
                 .uploadedDocTypes(List.of())
-                .missingDocTypes(List.of(DocType.ID_CARD, DocType.PROPERTY_PAPER, DocType.DRAFT_CONTRACT))
+                .missingDocTypes(List.of("ID_CARD", "PROPERTY_PAPER", "DRAFT_CONTRACT"))
                 .readyForAccept(false)
                 .build();
 
@@ -151,9 +150,9 @@ class NotaryRequestControllerTest {
         r.setUpdatedAt(OffsetDateTime.now());
 
         DocumentRequirementResponse documentRequirements = DocumentRequirementResponse.builder()
-                .requiredDocTypes(List.of(DocType.ID_CARD, DocType.DRAFT_CONTRACT))
-                .uploadedDocTypes(List.of(DocType.ID_CARD))
-                .missingDocTypes(List.of(DocType.DRAFT_CONTRACT))
+                .requiredDocTypes(List.of("ID_CARD", "DRAFT_CONTRACT"))
+                .uploadedDocTypes(List.of("ID_CARD"))
+                .missingDocTypes(List.of("DRAFT_CONTRACT"))
                 .readyForAccept(false)
                 .build();
 
@@ -215,7 +214,7 @@ class NotaryRequestControllerTest {
         Document doc = new Document();
         doc.setDocumentId(UUID.randomUUID());
 
-        when(notaryRequestService.uploadDocument(eq(rid), eq(clientUser.getEmail()), any(), eq(DocType.DRAFT_CONTRACT)))
+        when(notaryRequestService.uploadDocument(eq(rid), eq(clientUser.getEmail()), any(), eq("DRAFT_CONTRACT")))
                 .thenReturn(doc);
 
         mockMvc.perform(multipart("/api/requests/" + rid + "/documents")
@@ -234,9 +233,9 @@ class NotaryRequestControllerTest {
         r.setClient(clientUser);
 
         DocumentRequirementResponse response = DocumentRequirementResponse.builder()
-                .requiredDocTypes(List.of(DocType.ID_CARD, DocType.DRAFT_CONTRACT))
-                .uploadedDocTypes(List.of(DocType.ID_CARD))
-                .missingDocTypes(List.of(DocType.DRAFT_CONTRACT))
+                .requiredDocTypes(List.of("ID_CARD", "DRAFT_CONTRACT"))
+                .uploadedDocTypes(List.of("ID_CARD"))
+                .missingDocTypes(List.of("DRAFT_CONTRACT"))
                 .readyForAccept(false)
                 .build();
 
@@ -266,6 +265,55 @@ class NotaryRequestControllerTest {
         mockMvc.perform(get("/api/requests/" + rid + "/document-requirements")
                         .principal(clientAuth))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void getRequestDocuments_clientBeforeCompleted_hidesSignedDocument() throws Exception {
+        UUID rid = UUID.randomUUID();
+        NotaryRequest r = requestForDocuments(rid, RequestStatus.AWAITING_PAYMENT);
+        Document idCard = documentForRequest(r, "ID_CARD");
+        Document signedDocument = documentForRequest(r, "SIGNED_DOCUMENT");
+
+        when(notaryRequestService.getById(rid)).thenReturn(r);
+        when(notaryRequestService.getDocumentsByRequestId(rid)).thenReturn(List.of(idCard, signedDocument));
+
+        mockMvc.perform(get("/api/requests/" + rid + "/documents")
+                        .principal(clientAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].docType").value("ID_CARD"))
+                .andExpect(jsonPath("$.data[1]").doesNotExist());
+    }
+
+    @Test
+    void getRequestDocuments_clientAfterCompleted_returnsSignedDocument() throws Exception {
+        UUID rid = UUID.randomUUID();
+        NotaryRequest r = requestForDocuments(rid, RequestStatus.COMPLETED);
+        Document idCard = documentForRequest(r, "ID_CARD");
+        Document signedDocument = documentForRequest(r, "SIGNED_DOCUMENT");
+
+        when(notaryRequestService.getById(rid)).thenReturn(r);
+        when(notaryRequestService.getDocumentsByRequestId(rid)).thenReturn(List.of(idCard, signedDocument));
+
+        mockMvc.perform(get("/api/requests/" + rid + "/documents")
+                        .principal(clientAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].docType").value("ID_CARD"))
+                .andExpect(jsonPath("$.data[1].docType").value("SIGNED_DOCUMENT"));
+    }
+
+    @Test
+    void getRequestDocuments_assignedNotaryBeforeCompleted_returnsSignedDocument() throws Exception {
+        UUID rid = UUID.randomUUID();
+        NotaryRequest r = requestForDocuments(rid, RequestStatus.AWAITING_PAYMENT);
+        Document signedDocument = documentForRequest(r, "SIGNED_DOCUMENT");
+
+        when(notaryRequestService.getById(rid)).thenReturn(r);
+        when(notaryRequestService.getDocumentsByRequestId(rid)).thenReturn(List.of(signedDocument));
+
+        mockMvc.perform(get("/api/requests/" + rid + "/documents")
+                        .principal(notaryAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].docType").value("SIGNED_DOCUMENT"));
     }
 
     @Test
@@ -357,7 +405,7 @@ class NotaryRequestControllerTest {
                         updated.setNotary(notaryUser);
                         updated.setStatus(RequestStatus.ACCEPTED);
 
-                        when(notaryRequestService.acceptRequest(eq(rid), eq(notaryUser.getEmail()))).thenReturn(updated);
+                        when(notaryRequestService.acceptRequest(eq(rid), eq(notaryUser.getEmail()), isNull())).thenReturn(updated);
 
                         mockMvc.perform(post("/api/requests/" + rid + "/accept")
                                         .principal(notaryAuth))
@@ -379,7 +427,7 @@ class NotaryRequestControllerTest {
                                     void acceptRequest_missingDocuments_returnsCodeAndMissingDocTypes() throws Exception {
                                         UUID rid = UUID.randomUUID();
 
-                                        when(notaryRequestService.acceptRequest(eq(rid), eq(notaryUser.getEmail())))
+                                        when(notaryRequestService.acceptRequest(eq(rid), eq(notaryUser.getEmail()), isNull()))
                                                 .thenThrow(new AppException(
                                                         ErrorCode.REQUEST_MISSING_REQUIRED_DOCUMENTS,
                                                         Map.of("missingDocTypes", List.of("DRAFT_CONTRACT"))
@@ -649,6 +697,30 @@ class NotaryRequestControllerTest {
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value(ErrorCode.REQUEST_ALREADY_ASSIGNED.name()));
+    }
+
+    private NotaryRequest requestForDocuments(UUID requestId, RequestStatus status) {
+        NotaryRequest request = new NotaryRequest();
+        request.setRequestId(requestId);
+        request.setClient(clientUser);
+        request.setNotary(notaryUser);
+        request.setStatus(status);
+        request.setServiceType(ServiceType.ONLINE);
+        request.setContractType(ContractType.PERSONAL_COMMITMENT);
+        request.setCreatedAt(OffsetDateTime.now());
+        request.setUpdatedAt(OffsetDateTime.now());
+        return request;
+    }
+
+    private Document documentForRequest(NotaryRequest request, String docType) {
+        Document document = new Document();
+        document.setDocumentId(UUID.randomUUID());
+        document.setRequest(request);
+        document.setDocType(docType);
+        document.setFilePath("uploads/" + document.getDocumentId() + ".pdf");
+        document.setFileHash("abc123");
+        document.setCreatedAt(OffsetDateTime.now());
+        return document;
     }
 
 }

@@ -22,4 +22,6 @@ public class NotaryServiceTypeRequest {
     private String description;
     
     private Boolean isActive = true;
+
+    private Boolean requiresTemplate = true;
 }

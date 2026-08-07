@@ -1,8 +1,13 @@
 package com.actvn.enotary.controller;
 import com.actvn.enotary.dto.request.CreateVideoSessionRequest;
+import com.actvn.enotary.dto.request.EvidenceCaptureRequest;
+import com.actvn.enotary.dto.request.SignVideoDocumentRequest;
 import com.actvn.enotary.dto.response.ApiResponse;
 import com.actvn.enotary.dto.response.ApiResponseUtil;
+import com.actvn.enotary.dto.response.DocumentResponse;
+import com.actvn.enotary.dto.response.SignVideoDocumentResponse;
 import com.actvn.enotary.dto.response.VideoSessionResponse;
+import com.actvn.enotary.entity.Document;
 import com.actvn.enotary.exception.AppException;
 import com.actvn.enotary.exception.ErrorCode;
 import com.actvn.enotary.security.CustomUserDetails;
@@ -115,6 +120,50 @@ public class VideoSessionController {
         VideoSessionResponse response = videoSessionService.endSession(sessionId, reason);
         return ResponseEntity.ok(ApiResponseUtil.success(response, "Kết thúc phiên video thành công"));
     }
+
+    @PostMapping("/sessions/{id}/evidence")
+    public ResponseEntity<ApiResponse<DocumentResponse>> saveEvidencePhoto(
+            Authentication authentication,
+            @PathVariable("id") UUID sessionId,
+            @Valid @RequestBody EvidenceCaptureRequest request) {
+        if (authentication == null || !(authentication.getPrincipal() instanceof CustomUserDetails userDetails)) {
+            throw new AppException(ErrorCode.INVALID_AUTHENTICATION);
+        }
+        String role = userDetails.getRole() != null ? userDetails.getRole().name() : "";
+        if (!"NOTARY".equals(role)) {
+            throw new AppException(ErrorCode.INVALID_AUTHORIZATION);
+        }
+
+        Document document = videoSessionService.saveEvidencePhoto(sessionId, userDetails.getUsername(), request.getImageData());
+        return ResponseEntity.ok(ApiResponseUtil.success(
+                DocumentResponse.fromEntity(document),
+                "Lưu ảnh bằng chứng thành công"
+        ));
+    }
+
+    @PostMapping("/sessions/{id}/signatures")
+    public ResponseEntity<ApiResponse<SignVideoDocumentResponse>> signDocument(
+            Authentication authentication,
+            @PathVariable("id") UUID sessionId,
+            @Valid @RequestBody SignVideoDocumentRequest request) {
+        if (authentication == null || !(authentication.getPrincipal() instanceof CustomUserDetails userDetails)) {
+            throw new AppException(ErrorCode.INVALID_AUTHENTICATION);
+        }
+
+        SignVideoDocumentResponse response = videoSessionService.signDocument(
+                sessionId,
+                userDetails.getUsername(),
+                request.getDocumentId(),
+                request.getSignatureValue(),
+                request.getPageNumber(),
+                request.getXPercent(),
+                request.getYPercent(),
+                request.getWidthPercent(),
+                request.getHeightPercent()
+        );
+        return ResponseEntity.ok(ApiResponseUtil.success(response, "Ký số văn bản thành công"));
+    }
+
     /**
      * Hủy video session
      * POST /api/video/sessions/{id}/cancel

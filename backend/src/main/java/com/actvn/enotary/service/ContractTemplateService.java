@@ -5,11 +5,13 @@ import com.actvn.enotary.entity.NotaryServiceType;
 import com.actvn.enotary.exception.AppException;
 import com.actvn.enotary.repository.ContractTemplateRepository;
 import com.actvn.enotary.repository.NotaryServiceTypeRepository;
+import com.actvn.enotary.repository.NotaryRequestRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -25,6 +27,7 @@ import java.util.UUID;
 public class ContractTemplateService {
     private final ContractTemplateRepository contractTemplateRepository;
     private final NotaryServiceTypeRepository notaryServiceTypeRepository;
+    private final NotaryRequestRepository notaryRequestRepository;
 
     private static final String UPLOAD_DIR = "uploads/templates/";
 
@@ -86,11 +89,26 @@ public class ContractTemplateService {
         return contractTemplateRepository.save(existing);
     }
 
+    @Transactional
     public void deleteTemplate(UUID id) {
         ContractTemplate existing = contractTemplateRepository.findById(id)
                 .orElseThrow(() -> new AppException("Không tìm thấy mẫu hợp đồng", HttpStatus.NOT_FOUND));
-        existing.setIsActive(false);
-        contractTemplateRepository.save(existing);
+
+        notaryRequestRepository.clearSelectedTemplate(id);
+        deleteFileIfExists(existing.getFileUrl());
+        contractTemplateRepository.delete(existing);
+    }
+
+    private void deleteFileIfExists(String fileUrl) {
+        if (fileUrl == null || fileUrl.isBlank()) {
+            return;
+        }
+        try {
+            Path filePath = Paths.get(fileUrl).normalize();
+            Files.deleteIfExists(filePath);
+        } catch (IOException e) {
+            throw new AppException("Lỗi khi xóa file mẫu hợp đồng", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
 
     private String saveFile(MultipartFile file) {

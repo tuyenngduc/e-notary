@@ -28,6 +28,8 @@ public class AppointmentResponse {
     private OffsetDateTime createdAt;
 
     private String clientName;
+    private String notaryName;
+    private ContractTemplateResponse selectedTemplate;
 
     public static AppointmentResponse fromEntity(Appointment a) {
         String cName = null;
@@ -35,6 +37,13 @@ public class AppointmentResponse {
             cName = a.getRequest().getClient().getProfile() != null 
                     ? a.getRequest().getClient().getProfile().getFullName() 
                     : a.getRequest().getClient().getEmail();
+        }
+
+        String nName = null;
+        if (a.getRequest() != null && a.getRequest().getNotary() != null) {
+            nName = a.getRequest().getNotary().getProfile() != null
+                    ? a.getRequest().getNotary().getProfile().getFullName()
+                    : a.getRequest().getNotary().getEmail();
         }
 
         return AppointmentResponse.builder()
@@ -48,6 +57,10 @@ public class AppointmentResponse {
                 .status(a.getStatus())
                 .createdAt(a.getCreatedAt())
                 .clientName(cName)
+                .notaryName(nName)
+                .selectedTemplate(a.getRequest() != null && a.getRequest().getSelectedTemplate() != null
+                        ? ContractTemplateResponse.fromEntity(a.getRequest().getSelectedTemplate())
+                        : null)
                 .build();
     }
 }

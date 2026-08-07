@@ -32,6 +32,10 @@ public class NotaryRequest {
     private ContractType contractType;
     private String description;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "selected_template_id")
+    private ContractTemplate selectedTemplate;
+
     @Enumerated(EnumType.STRING)
     private RequestStatus status = RequestStatus.NEW;
 
@@ -45,4 +49,5 @@ public class NotaryRequest {
 
     @OneToMany(mappedBy = "request", cascade = CascadeType.ALL)
     private List<Document> documents;
+
 }

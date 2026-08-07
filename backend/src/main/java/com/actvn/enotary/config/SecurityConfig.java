@@ -61,6 +61,7 @@ public class SecurityConfig {
 
         http.cors(withDefaults())
                 .csrf(AbstractHttpConfigurer::disable)
+                .headers(headers -> headers.frameOptions(frameOptions -> frameOptions.sameOrigin()))
                 .sessionManagement(sess ->
                         sess.sessionCreationPolicy(
                                 SessionCreationPolicy.STATELESS))
@@ -82,6 +83,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/refresh").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/templates/*/view", "/api/templates/*/download").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/documents/*/view").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/documents/*/pages/*/image").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/public/documents/verify").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/video/verify-token").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/video/room/**").permitAll()
                         .requestMatchers("/ws/**").permitAll()

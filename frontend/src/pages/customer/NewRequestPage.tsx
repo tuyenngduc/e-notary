@@ -1,40 +1,88 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import {
   createRequestApi,
 } from '../../features/requests/requestApi';
+import { listActiveServicesApi } from '../../features/services/serviceApi';
 import { toApiErrorMessage } from '../../lib/apiError';
+import type { NotaryServiceType } from '../../types/admin';
 import type { ContractType, ServiceType } from '../../types/request';
 
-const contractOptions: Array<{ value: ContractType; label: string; price: string }> = [
-  { value: 'TRANSFER_OF_PROPERTY', label: 'Hợp đồng chuyển nhượng', price: '150,000' },
-  { value: 'POWER_OF_ATTORNEY', label: 'Ủy quyền', price: '100,000' },
-  { value: 'LOAN_AGREEMENT', label: 'Hợp đồng vay mượn', price: '120,000' },
-  { value: 'WILL', label: 'Di chúc', price: '200,000' },
-  { value: 'MARRIAGE_CONTRACT', label: 'Hợp đồng hôn nhân', price: '180,000' },
-  { value: 'BUSINESS_CONTRACT', label: 'Hợp đồng thương mại', price: '160,000' },
-  { value: 'OTHER', label: 'Loại khác', price: 'Theo báo giá' },
+const contractOptions: Array<{ value: ContractType; label: string }> = [
+  { value: 'POWER_OF_ATTORNEY', label: 'Giấy ủy quyền' },
+  { value: 'PERSONAL_COMMITMENT', label: 'Văn bản cam kết cá nhân' },
+  { value: 'SIGNATURE_CERTIFICATION', label: 'Xác nhận chữ ký' },
+  { value: 'E_COPY_CERTIFICATION', label: 'Chứng thực bản sao' },
+  { value: 'WILL', label: 'Di chúc' },
+  { value: 'LOAN_AGREEMENT', label: 'Hợp đồng vay mượn' },
+  { value: 'CIVIL_AGREEMENT', label: 'Thỏa thuận dân sự' },
 ];
+
+function formatPrice(value: number) {
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'currency',
+    currency: 'VND',
+    maximumFractionDigits: 0,
+  }).format(value);
+}
 
 export function NewRequestPage() {
   const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [services, setServices] = useState<NotaryServiceType[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(true);
+  const [servicesError, setServicesError] = useState('');
   const [form, setForm] = useState<{
     serviceType: ServiceType;
     contractType: ContractType;
     description: string;
   }>({
     serviceType: 'ONLINE',
-    contractType: 'TRANSFER_OF_PROPERTY',
+    contractType: 'POWER_OF_ATTORNEY',
     description: '',
   });
 
-  const selectedContract = useMemo(
-    () => contractOptions.find((item) => item.value === form.contractType),
-    [form.contractType],
+  useEffect(() => {
+    const loadServices = async () => {
+      setServicesLoading(true);
+      setServicesError('');
+      try {
+        setServices(await listActiveServicesApi());
+      } catch (error) {
+        setServicesError(toApiErrorMessage(error, 'Không tải được bảng giá dịch vụ'));
+      } finally {
+        setServicesLoading(false);
+      }
+    };
+
+    void loadServices();
+  }, []);
+
+  const selectedService = useMemo(
+    () => services.find((item) => item.serviceCode === form.contractType),
+    [form.contractType, services],
   );
+
+  const serviceOptions = useMemo(
+    () => services.length > 0
+      ? services.map((service) => ({
+          value: service.serviceCode as ContractType,
+          label: service.name,
+        }))
+      : contractOptions,
+    [services],
+  );
+
+  useEffect(() => {
+    if (services.length === 0) {
+      return;
+    }
+    if (!services.some((service) => service.serviceCode === form.contractType)) {
+      setForm((prev) => ({ ...prev, contractType: services[0].serviceCode as ContractType }));
+    }
+  }, [form.contractType, services]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -66,18 +114,33 @@ export function NewRequestPage() {
 
         <section className="soft-card">
           <form className="form-stack" onSubmit={handleSubmit}>
-            <label className="field">
+            <div className="field">
               <span>Loại dịch vụ</span>
-              <select
-                value={form.serviceType}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, serviceType: event.target.value as ServiceType }))
-                }
-              >
-                <option value="ONLINE">Online</option>
-                <option value="OFFLINE">Offline</option>
-              </select>
-            </label>
+              <div className="service-type-options" role="radiogroup" aria-label="Loại dịch vụ">
+                <label className={`service-type-option ${form.serviceType === 'ONLINE' ? 'selected' : ''}`}>
+                  <input
+                    type="radio"
+                    name="serviceType"
+                    value="ONLINE"
+                    checked={form.serviceType === 'ONLINE'}
+                    onChange={() => setForm((prev) => ({ ...prev, serviceType: 'ONLINE' }))}
+                  />
+                  <span className="service-type-option-title">Trực tuyến</span>
+                  <small>Thực hiện trực tuyến trên hệ thống.</small>
+                </label>
+                <label className={`service-type-option ${form.serviceType === 'OFFLINE' ? 'selected' : ''}`}>
+                  <input
+                    type="radio"
+                    name="serviceType"
+                    value="OFFLINE"
+                    checked={form.serviceType === 'OFFLINE'}
+                    onChange={() => setForm((prev) => ({ ...prev, serviceType: 'OFFLINE' }))}
+                  />
+                  <span className="service-type-option-title">Trực tiếp</span>
+                  <small>Thực hiện trực tiếp tại các văn phòng công chứng.</small>
+                </label>
+              </div>
+            </div>
 
             <label className="field">
               <span>Loại hợp đồng</span>
@@ -87,7 +150,7 @@ export function NewRequestPage() {
                   setForm((prev) => ({ ...prev, contractType: event.target.value as ContractType }))
                 }
               >
-                {contractOptions.map((option) => (
+                {serviceOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -105,11 +168,16 @@ export function NewRequestPage() {
               />
             </label>
 
-            {selectedContract ? (
-              <div className="price-panel">
-                <strong>Giá dự kiến:</strong> {selectedContract.price} VND
-              </div>
-            ) : null}
+            <div className="price-panel">
+              <strong>Giá dự kiến:</strong>{' '}
+              {servicesLoading
+                ? 'Đang tải bảng giá...'
+                : selectedService
+                  ? formatPrice(selectedService.basePrice)
+                  : 'Theo báo giá'}
+            </div>
+
+            {servicesError ? <div className="form-error">{servicesError}</div> : null}
 
             {submitError ? <div className="form-error">{submitError}</div> : null}
 

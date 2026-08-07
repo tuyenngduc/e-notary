@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { DashboardLayout } from '../../components/DashboardLayout';
-import { getDashboardSummaryApi, getDashboardRevenueApi, getDashboardRequestsChartApi } from '../../features/admin/adminApi';
+import {
+  getDashboardRequestsChartApi,
+  getDashboardRevenueApi,
+  getDashboardSummaryApi,
+} from '../../features/admin/adminApi';
 import type { DashboardSummary, RevenueData, RequestsChartData } from '../../features/admin/adminApi';
 import { toApiErrorMessage } from '../../lib/apiError';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
@@ -57,7 +61,6 @@ export function AdminDashboardPage() {
           </div>
         )}
 
-        {/* Summary Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '3rem' }}>
           <div className="soft-card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderLeft: '4px solid #3b82f6' }}>
             <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Tổng Số User</span>
@@ -77,10 +80,7 @@ export function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Charts */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '2rem' }}>
-          
-          {/* Revenue Chart */}
           <div className="soft-card" style={{ padding: '1.5rem' }}>
             <h2 style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: '1.5rem', color: 'var(--text-primary)' }}>Doanh Thu Theo Tháng</h2>
             <div style={{ height: '300px', width: '100%' }}>
@@ -92,7 +92,7 @@ export function AdminDashboardPage() {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                   <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dx={-10} tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`} />
-                  <RechartsTooltip 
+                  <RechartsTooltip
                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
                     formatter={(value: unknown) => [`${Number(value).toLocaleString()} VND`, 'Doanh thu']}
                   />
@@ -102,7 +102,6 @@ export function AdminDashboardPage() {
             </div>
           </div>
 
-          {/* Requests Chart */}
           <div className="soft-card" style={{ padding: '1.5rem' }}>
             <h2 style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: '1.5rem', color: 'var(--text-primary)' }}>Số Lượng Hồ Sơ Theo Dịch Vụ</h2>
             <div style={{ height: '300px', width: '100%' }}>
@@ -113,9 +112,16 @@ export function AdminDashboardPage() {
                   layout="vertical"
                 >
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
-                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
+                  <XAxis
+                    type="number"
+                    allowDecimals={false}
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#64748b' }}
+                    tickFormatter={(value) => String(Math.trunc(Number(value)))}
+                  />
                   <YAxis dataKey="serviceType" type="category" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} width={120} />
-                  <RechartsTooltip 
+                  <RechartsTooltip
                     cursor={{ fill: '#f1f5f9' }}
                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
                     formatter={(value: unknown) => [String(value), 'Số lượng']}
@@ -125,7 +131,6 @@ export function AdminDashboardPage() {
               </ResponsiveContainer>
             </div>
           </div>
-
         </div>
       </div>
     </DashboardLayout>

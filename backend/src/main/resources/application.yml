@@ -2,6 +2,8 @@ server:
   port: ${SERVER_PORT:8080}
 
 spring:
+  config:
+    import: optional:file:.env[.properties],optional:file:backend/.env[.properties]
   application:
     name: ENotarySystem
 
@@ -58,6 +60,27 @@ app:
     password: ${ADMIN_PASSWORD:DefaultAdmin@123}
   meeting:
     base-url: ${MEETING_BASE_URL:http://localhost:8080}
+  payment:
+    bank-code: ${PAYMENT_BANK_CODE:MB}
+    account-number: ${PAYMENT_ACCOUNT_NUMBER:0000000000}
+    account-name: ${PAYMENT_ACCOUNT_NAME:E NOTARY}
   mail:
     enabled: ${MAIL_ENABLED:true}
     from: ${MAIL_FROM:${MAIL_USERNAME:no-reply@enotary.local}}
+  blockchain:
+    enabled: ${BLOCKCHAIN_ENABLED:false}
+    rpc-url: ${BESU_RPC_URL:http://localhost:8545}
+    chain-id: ${BESU_CHAIN_ID:1337}
+    network-name: ${BESU_NETWORK_NAME:Hyperledger Besu Local}
+    node-name: ${BESU_NODE_NAME:besu-rpc-1}
+    sender-private-key: ${BESU_SENDER_PRIVATE_KEY:}
+    contract-address: ${BESU_DOCUMENT_ANCHOR_CONTRACT:}
+    pq-private-key-path: ${BESU_PQ_PRIVATE_KEY_PATH:}
+    pq-public-key-path: ${BESU_PQ_PUBLIC_KEY_PATH:}
+    pq-signer-jar: ${BESU_PQ_SIGNER_JAR:}
+    pq-java-executable: ${BESU_PQ_JAVA_PATH:java}
+    gas-limit: ${BESU_GAS_LIMIT:300000}
+    max-priority-fee-per-gas: ${BESU_MAX_PRIORITY_FEE_PER_GAS:0}
+    max-fee-per-gas: ${BESU_MAX_FEE_PER_GAS:2000000000}
+    receipt-polling-attempts: ${BESU_RECEIPT_POLLING_ATTEMPTS:30}
+    receipt-polling-interval-millis: ${BESU_RECEIPT_POLLING_INTERVAL_MS:1000}

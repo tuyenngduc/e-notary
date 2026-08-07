@@ -53,13 +53,13 @@ export function RegisterPage() {
         <form className="form-stack" onSubmit={onSubmit} noValidate>
           <label className="field">
             <span>Email</span>
-            <input type="email" placeholder="email@example.com" {...register('email')} />
+            <input type="email" placeholder="Vui lòng nhập email" {...register('email')} />
             {errors.email && <small>{errors.email.message}</small>}
           </label>
 
           <label className="field">
             <span>Số điện thoại</span>
-            <input type="tel" placeholder="0987xxxxxx" {...register('phoneNumber')} />
+            <input type="tel" placeholder="Vui lòng nhập số điện thoại" {...register('phoneNumber')} />
             {errors.phoneNumber && <small>{errors.phoneNumber.message}</small>}
           </label>
 

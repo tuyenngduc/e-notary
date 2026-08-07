@@ -1,0 +1,625 @@
+Create Post-Quantum Cryptography Chimera CA Chain
+In this guide, you will learn how to create a post-quantum cryptography (PQC) Chimera Certificate Authority (CA) chain that uses RSA for the traditional key and Module-Lattice-Based Digital Signature Standard (ML-DSA) for the PQC key.
+
+About transitioning between various cryptography algorithms
+About ... – Click to learn more
+Video
+
+Note that this video was created using EJBCA 8.3.2 with the candidate algorithm Dilithium. However, the steps described below have been updated and are based on EJBCA Community 9.1, which supports issuing certificates with the NIST-approved quantum-safe algorithm ML-DSA. As a result, some elements in the video may differ from the current version, but the steps remain the same.
+
+
+Prerequisites
+
+For this guide, EJBCA Community container version 9.1 was used.
+
+Before you begin, you need:
+
+A running EJBCA instance - Click to learn more
+An active Certificate Authority (CA) in EJBCA, certificate profiles, end entity profiles, and roles configured. See the playlist Get started with EJBCA and Istio.
+
+Step 1 - Update EJBCA container to version 9.1 or later
+Chimera certificates were introduced as a new feature in EJBCA 8.3, and NIST standard algorithms in 9.1. To use this feature the tag for the EJBCA container must be using 9.1 or greater. Follow the applicable section below to upgrade the EJBCA container.
+
+Update Docker Compose file and start the containers
+If EJBCA is deployed using Docker, follow these steps to upgrade the EJBCA container:
+
+Use SSH to access the Docker server.
+
+Change directory to the docker compose file.
+
+BASH
+$ cd ~/containers
+Copy
+Use a text editor to edit the docker-compose.yml file.
+
+BASH
+$ vim docker-compose.yml
+Copy
+Update the container image tag to 9.1 or later.
+
+YAML
+version: '3'
+networks:
+  access-bridge:
+    driver: bridge
+  application-bridge:
+    driver: bridge
+services:
+  ejbca-database:
+    container_name: ejbca-database
+    image: "library/mariadb:latest"
+    networks:
+      - application-bridge
+    volumes:
+      - ./datadbdir:/var/lib/mysql:rw
+  ejbca-node1:
+    hostname: ejbca-node1
+    container_name: ejbca
+    image: keyfactor/ejbca-ce:9.1.0
+    depends_on:
+      - ejbca-database
+    networks:
+      - access-bridge
+      - application-bridge
+    environment:
+      - DATABASE_JDBC_URL=jdbc:mariadb://ejbca-database:3306/ejbca?characterEncoding=UTF-8
+      - LOG_LEVEL_APP=INFO
+      - LOG_LEVEL_SERVER=INFO
+      - TLS_SETUP_ENABLED=simple
+      - OCSP_NON_EXISTING_IS_GOOD=true
+    ports:
+      - "80:8080"
+      - "443:8443"
+Copy
+Save and close the file.
+
+Start the EJBCA and MariaDB container with the following command:
+
+BASH
+$ docker compose up -d
+Copy
+You have now updated the Docker Compose file to use the latest EJBCA container and started the containers. Continue to step 2, which walks through creating the crypto tokens for the PQC Chimera CAs.
+
+Use Helm to update the EJBCA deployment
+If EJBCA is deployed in Kubernetes using Helm, follow these steps to upgrade the EJBCA container:
+
+Use SSH to access the Kubernetes server.
+
+Change directory to the k81 where the ejbca-overrides.yaml file is located for the EJBCA Helm deployment:
+
+BASH
+$ cd ~/k81
+Copy
+Update the image pull policy to Always to download the latest EJBCA container:
+
+BASH
+$ sed -i s/IfNotPresent/Always/ ejbca-overrides.yaml
+Copy
+Use Helm to upgrade the EJBCA deployment to redeploy EJBCA with the latest container:
+
+BASH
+$ helm upgrade -n ejbca-k8s ejbca-ca ejbca-ce/ejbca-community-helm -f ejbca-overrides.yaml 
+Copy
+The output is similar to the following:
+
+BASH
+Release "ejbca-ca" has been upgraded. Happy Helming!
+NAME: ejbca-ca
+LAST DEPLOYED: Tue Jul  9 13:40:25 2024
+NAMESPACE: ejbca-k8s
+STATUS: deployed
+REVISION: 2
+TEST SUITE: None
+NOTES:
+Thank you for installing EJBCA CE!
+
+Now that you have deployed EJBCA, you should look over the docs on using
+EJBCA available here:
+
+https://docs.keyfactor.com/
+
+Your release is named ejbca-ca. To learn more about the release, try:
+
+  $ helm status ejbca-ca
+  $ helm get manifest ejbca-ca
+Copy
+Change the pull policy back to IfNotPresent to prevent EJBCA from upgrading until you are ready to upgrade:
+
+BASH
+$ sed -i s/Always/IfNotPresent/ ejbca-overrides.yaml
+Copy
+You have now updated the EJBCA deployment using Helm to use the latest EJBCA container. Continue to step 2, which walks through creating the crypto tokens for the PQC Chimera CAs.
+
+Step 2 - Create crypto tokens for the PQC Chimera Root and Sub CA
+Crypto tokens are how you manage keys in EJBCA used by CAs, remote authentication for peering, OCSP signers, and a few other integrations. Before creating a PQC Chimera CA, keys must be generated for the CA to use.
+
+To create crypto tokens for the PQC Chimera CAs, follow these steps:
+
+Go to the EJBCA Administration and click CA Functions > Crypto Tokens.
+
+Click Create new and specify the following on the New Crypto Token page:
+
+Name: Specify a name for the crypto token, in this example, pqcChimeraRoot.
+
+Type: Select Soft.
+
+Authentication Code: Enter a password to be used to activate the crypto token if the container is restarted. In this example, foo123.
+
+Click Save to create the crypto token.
+
+Generate the following keys:
+
+In the Name field that says signKey, specify signKeyRsa001, select RSA 4096 for the key size, and then click Generate new key pair to create the keys.
+
+Repeat to create the default encryption key: name the key defaultKeyRsa001, select RSA 4096 for the key size, and then click Generate new key pair. 
+
+Repeat to create a test key: name the key testRsaKey, select RSA 1024 for the key size, and then click Generate new key pair.
+
+Last, to create a ML-DSA key: name the key signKeyMLDSA001, select ML-DSA-65 for the key size, and then click Generate new key pair.
+
+Click Back to Crypto Token overview.
+
+Next, to create a crypto token for the Sub CA, click Create new and specify the following on the New Crypto Token page:
+
+Name: Specify a name for the crypto token, in this example, pqcChimeraSub.
+
+Type: Select Soft.
+
+Auto-activation: Select Use to allow EJBCA to save the password and reapply it after a restart.
+
+Authentication Code: Enter a password to be used to activate the crypto token if the container is restarted. In this example, foo123.
+
+Click Save to create the crypto token.
+
+Generate the following keys using the same naming as for the Root CA crypto token:
+
+In the Name field that says signKey, specify signKeyRsa001, select RSA 4096 for the key size, and then click Generate new key pair to create the keys.
+
+Repeat to create the default encryption key: name the key defaultKeyRsa001, select RSA 4096 for the key size, and then click Generate new key pair. 
+
+Repeat to create a test key: name the key testRsaKey, select RSA 1024 for the key size, and then click Generate new key pair.
+
+Last, to create a ML-DSA key: name the key signKeyMLDSA001, select ML-DSA-65 for the key size, and then click Generate new key pair.
+
+Click Back to Crypto Token overview.
+
+You have now created two crypto tokens for the PQC Root and Sub CAs and can continue with creating certificate profiles for the PQC Chimera Root CA and Sub CA in the next step.
+
+Step 3 - Create and configure certificate profiles for the PQC Chimera CAs
+With the support of issuing PQC Chimera certificates, new Alternative Signature certificate profile fields were added, see Certificate Profile Fields for more information. These settings must be configured in the certificate profile to create a PQC Chimera CA.
+
+To configure two certificate profiles to support a PQC Chimera certificate, follow these steps:
+
+Continuing from the EJBCA Administration, click CA Functions > Certificate Profiles.
+
+Click Clone next to the ROOTCA certificate profile.
+
+Name the new certificate profile pqcRootCA-15y, and click Create from template.
+
+To edit the profile values to fit your needs, find the newly created pqcRootCA-15y displayed in the list and click Edit.
+
+On the Edit page, update the following:
+
+For Available Key Algorithms, select RSA.
+
+For Available Bit Lengths, select 4096 bits.
+
+For Signature Algorithm, select SHA512withRSAandMGF1.
+
+Enable Alternative Signature by clicking Use.
+
+For Available Alternative Key Algorithms, select ML-DSA-65.
+
+For Alternative Signature Algorithm, select ML-DSA-65.
+
+For Validity or end date of the certificate, enter 15y.
+
+Clear Use for Authority Key ID.
+
+Clear Use for Subject Alternative Name.
+
+Clear Use for Issuer Alternative Name.
+
+Clear Use for LDAP DN order.
+
+Click Save to store the Root CA certificate profile.
+
+Next, to configure a Sub CA certificate profile, click Clone next to the SUBCA certificate profile.
+
+Name the new certificate profile pqcSubCA-5y, and click Create from template.
+
+To edit the profile values to fit your needs, find the newly created pqcSubCA-5y displayed in the list and click Edit.
+
+On the Edit page, update the following:
+
+For Available Key Algorithms, select RSA.
+
+For Available Bit Lengths., select 4096 bits.
+
+For Signature Algorithm, select SHA256withRSAandMGF1.
+
+Enable Alternative Signature by clicking Use.
+
+For Available Alternative Key Algorithms, select ML-DSA-65.
+
+For Alternative Signature Algorithm, select ML-DSA-65.
+
+For Validity or end date of the certificate, enter 5y.
+
+For Path Length Constraint, select Add, and enter 0 for the value.
+
+Clear Use for Subject Alternative Name.
+
+Clear Use for Issuer Alternative Name.
+
+Select Use for CRL Distribution Points.
+
+Select Use for Use CA defined CRL Distribution Point.
+
+Select Use for Authority Information Access.
+
+Select Use for Use CA defined OCSP locator.
+
+Select Use for Use CA defined CA issuer.
+
+Clear Use for LDAP DN order.
+
+Click Save to store the Sub CA certificate profile.
+
+You have now created two new certificate profiles for the PQC Chimera Root and Sub CA. Continue to the next step to create the PQC Chimera Root CA.
+
+Step 4 - ​Create the PQC Chimera Root CA
+Now that you have already created the crypto tokens and certificate profiles, you can complete this step to create the PQC Chimera Root CA. The steps to create a CA remain largely the same, with the addition of a few extra configuration options in the crypto token section of the CA configuration.
+
+To create a PQC Chimera Root CA, follow these steps:
+
+Continuing from the EJBCA Administration, click CA Functions > Certificate Authorities.
+
+In the Add CA field, enter the name pqcRootRsaCA-G1 and click Create.
+
+On the Create CA page, update the following:
+
+For Crypto Token, select the crypto token pqcChimeraRoot (created earlier in Step 2).
+
+For Signature Algorithm, select SHA512withRSAandMGF1.
+
+For Alternative Signing Algorithm, select an algorithm to enable Chimera certificates. In this example, ML-DSA-65.
+
+For Subject DN, enter CN=Chimera Root CA - G1,O=Keyfactor Community,C=SE.
+
+For Signed By, select Self Signed.
+
+For Certificate Profile, select pqcRootCA-15y.
+
+For Validity, enter 15y.
+
+Clear LDAP DN order.
+
+For CRL Expire Period, enter 1y.
+
+Click Create to create the Root CA.
+
+Next, to configure Default CA defined validation data values to be used:
+
+Configure the Default CRL Distribution Point:
+
+Open a second tab in the browser and go to https://ejbca-node1.ejbca-k8s/ejbca/publicweb/crls.
+
+Right-click the sKIDHash = G4H6WXpMeAn/HIRWpx7cpC72D7A Download link for the
+
+CN=Chimera Root CA - G1, O=Keyfactor Community, C=SE, and select Copy Link.
+
+Return to the first tab with the EJBCA Administration, select pqcRootRsaCA-G1, (Active) and click Edit CA.
+
+Scroll down to Default CRL Distribution Point, and paste the URL copied from the second tab.
+
+Edit the URL by changing https to http to ensure the CRL is downloaded via HTTP.
+
+Configure the CA Issuer Default URI:
+
+Open a third tab in the browser and go to https://ejbca-node1.ejbca-k8s/ejbca/publicweb/certificates.
+
+Right-click the sKIDHash = G4H6WXpMeAn/HIRWpx7cpC72D7A Download link for the
+
+CN=Chimera Root CA - G1, O=Keyfactor Community, C=SE, and select Copy Link.
+
+Return to the first tab with the EJBCA Administration, and paste the URL in the CA Issuer Default URI field.
+
+As before, change https to http in the URL to ensure the CA certificate is downloaded via HTTP.
+
+Click Save at the bottom of the page.
+
+You have now created a PQC Root CA that has RSA and ML-DSA keys and configured the URL for the CRL and CA certificate in the AIA extension. Continue to the next step to create a PQC Sub CA.
+
+Step 5 - ​Create the PQC Chimera Sub CA
+​After the Root CA is created, the CA chain extends by creating a PQC Chimera Sub CA signed by the PQC Chimera Root CA. The PQC Chimera Sub CA is used to issue end entity certificates.
+
+To create the PQC Chimera Sub CA, follow these steps:
+
+Continuing from the EJBCA Administration, click CA Functions > Certificate Authorities.
+
+In the Add CA field, enter the name pqcSubRsaCA-G1 and click Create.
+
+On the Create CA page, update the following:
+
+For Crypto Token, select the crypto token pqcChimeraSub (created earlier in Step 2).
+
+For Signature Algorithm, select SHA256withRSAandMGF1.
+
+For Alternative Signing Algorithm, select ML-DSA-65.
+
+For Subject DN, enter CN=Chimera Sub CA - G1,O=Keyfactor Community,C=SE.
+
+For Signed By, select pqcRootRsaCA-G1.
+
+For Certificate Profile, select pqcSubCARsaMLDSA3-5y.
+
+For Validity, enter 5y.
+
+Clear LDAP DN order.
+
+For CRL Expire Period, enter 3d.
+
+For CRL Issue Interval, enter 1d.
+
+Click Create to create the Root CA.
+
+Next, to configure Default CA defined validation data values to be used:
+
+Configure the Default CRL Distribution Point:
+
+Go to the second browser tab that is browsing the https://ejbca-node1.ejbca-k8s/ejbca/publicweb/crls URL, and refresh the page.
+
+Right-click the sKIDHash = DPkj1c+m9O9NRtgVANnoqOgZ+AQ Download link for the
+
+CN=Chimera Sub CA - G1, O=Keyfactor Community, C=SE, and select Copy Link.
+
+Return to the first tab with the EJBCA Administration, select pqcSubRsaCA-G1, (Active) and click Edit CA.
+
+Scroll down to Default CRL Distribution Point text field, and paste the URL copied from the second tab.
+
+Edit the URL by changing https to http to ensure the CRL is downloaded via HTTP.
+
+Configure the CA Issuer Default URI:
+
+Go to the third browser tab that is browsing the https://ejbca-node1.ejbca-k8s/ejbca/publicweb/certificates URL, and refresh the page.
+
+Right-click the sKIDHash = DPkj1c+m9O9NRtgVANnoqOgZ+AQ Download link for the
+
+CN=Chimera Sub CA - G1, O=Keyfactor Community, C=SE, and select Copy Link.
+
+Return to the first tab with the EJBCA Administration, and paste the URL in the CA Issuer Default URI field.
+
+As before, change https to http in the URL to ensure the CA certificate is downloaded via HTTP.
+
+Enter http://ejbca-node1.ejbca-k8s/ejbca/publicweb/status/ocsp for the OCSP service Default URI.
+
+Click Save at the bottom of the page.
+
+You have now created the PQC Chimera Sub CA and configured the CDP URL, CA certificate and OCSP URL in the AIA extension. Proceed to the next step to configure a certificate profile to issue an end entity.
+
+Step 6 - ​Create certificate profile and end entity profile to issue TLS Server PQC Chimera signed certificate
+​The CAs are now built and the next step is to create a certificate profile and end entity profile to use to issue an end entity PQC Chimera certificate.
+
+Create certificate profile
+
+To configure the certificate profile, follow these steps:
+
+To configure the certificate profile and end entity profile, follow these steps:
+
+Continuing from the EJBCA Administration, click CA Functions > Certificate Profiles.
+
+Click Clone next to the TLS Server Profile.
+
+Name the new certificate profile pqcTlsServerRsaMLDSA3-90d, and click Create from template.
+
+To edit the profile values to fit your needs, find the newly created pqcTlsServerRsaMLDSA3-90d displayed in the list and click Edit.
+
+On the Edit page, update the following:
+
+For Available Key Algorithms, select RSA.
+
+For Available Bit Lengths., select 2048 bits, 3072 bits, and 4096 bits.
+
+For Signature Algorithm, select SHA256withRSAandMGF1.
+
+Select Use for Alternative Signature.
+
+For Available Alternative Key Algorithms, select ML-DSA-65.
+
+For Alternative Signature Algorithm, select ML-DSA-65.
+
+For Validity or end date of the certificate, enter 90d.
+
+For Available CAs, select pqcSubRsaCA-G1.
+
+Click Save to store the certificate profile.
+
+Create end entity profile
+
+To configure the end entity profile, follow these steps:
+
+Next, to create the end entity profile, click RA Functions > End Entity Profiles.
+
+Select the TLS Server Profile, enter pqcTlsServer for the Add End Entity Profile, and click Clone selected.
+
+Select the created pqcTlsServer, and click Edit End Entity Profile to update the following:
+
+For Default Certificate Profile and Available Certificate Profiles, select pqcTlsServerRsaMLDSA3-90d.
+
+For Default CA and Available CAs, select pqcSubRsaCA-G1.
+
+Click Save to store the end entity profile.
+
+You have now created the certificate profile and end entity profile to issue a PQC Chimera end entity certificate. Continue to the next step to issue the PQC Chimera certificate.
+
+Step 7 - ​​Create a server TLS certificate using RA Web
+
+Note that the TLS leaf certificate itself will contain a single public key, i.e., the web server will use only a classic signature algorithm. The leaf certificate is, however, signed by the Chimera CA, so it contains two signatures from the CA, one with a classic algorithm and one with a PQC algorithm.
+
+​​The RA Web interface allows you to manage certificates in EJBCA. Follow the steps below to issue a PQC Chimera server TLS certificate using the RA Web:
+
+Continuing from the EJBCA Administration, click RA Web and click Make New Request.
+
+For Certificate Type, select pqcTlsServer.
+
+For Key-pair generation, select By the CA.
+
+Optional: If you desire a bigger RSA key, then select one of the other options from the Key algorithm list.
+
+For Common Name (CN), enter pqc-servertls.test.
+
+For the Username, enter pqc-servertls.test.
+
+Enter foo123 for Enrollment code and Confirm enrollment code.
+
+Click Download PEM.
+
+You have now issued a server TLS certificate signed by a Chimera CA. The TLS certificatre itself is single-key, but it is signed with both of the CA’s keys.
+
+Continue to the next step to parse the certificate with OpenSSL.
+
+Step 8 - ​​Review the PQC Chimera certificate with OpenSSL
+​​OpenSSL is a versatile tool that can be used to parse the PQC Chimera certificate. Although OpenSSL will not recognize Chimera extensions, you can identify and review the Object Identifiers (OIDs) used for the Chimera extensions. To parse the certificate with OpenSSL, follow these steps:
+
+Open a terminal window and change to the download directory where the certificate was downloaded to from the previous step.
+
+Parse the PQC Chimera certificate with OpenSSL:
+
+BASH
+$ openssl x509 -text -noout -in pqc-servertls.test.pem
+Copy
+The output is similar to the following:
+
+BASH
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number:
+            55:1d:1f:a7:c9:5b:5e:e8:3d:90:ba:be:8e:ff:b2:9d:97:19:d3:cf
+    Signature Algorithm: rsassaPss
+         Hash Algorithm: sha256
+         Mask Algorithm: mgf1 with sha256
+          Salt Length: 0x20
+         Trailer Field: 0xBC (default)
+        Issuer: C=SE, O=Keyfactor Community, CN=Chimera Sub CA - G1
+        Validity
+            Not Before: Jul  9 22:06:27 2024 GMT
+            Not After : Oct  3 22:06:26 2024 GMT
+        Subject: C=SE, O=Keyfactor Community, CN=pqc-servertls.test
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+                RSA Public-Key: (2048 bit)
+                Modulus:
+                    00:e1:21:3a:68:e7:2d:ae:f4:62:e5:e8:29:02:93:
+                    c6:de:40:c4:f1:2d:a9:e3:03:68:56:fd:d5:85:c2:
+                    e8:0a:14:83:4a:2a:07:be:7a:07:34:18:a7:45:35:
+                    8c:b1:64:f9:13:59:c2:b1:08:ba:29:4b:cf:b2:cc:
+                    64:14:73:0c:61:ab:9b:ae:31:0a:62:d7:1b:ff:a1:
+                    df:2d:2d:c6:01:b9:1c:e1:c8:1e:5d:ae:a1:b7:eb:
+                    84:6b:7d:ea:84:3f:73:ab:d2:54:78:8c:39:3a:fb:
+                    90:bc:b5:a5:57:fe:84:d1:56:82:c7:17:82:4f:f3:
+                    0b:2b:5c:19:55:f0:d9:44:dc:8d:a5:de:36:06:ad:
+                    02:cc:a1:52:10:b8:55:35:79:94:52:bf:1a:98:f6:
+                    4b:7b:d8:9a:38:37:28:02:0b:1f:74:db:32:1f:97:
+                    0b:12:9d:58:38:cd:35:5e:bd:51:c7:88:b8:4a:8e:
+                    cd:aa:db:6e:89:2f:79:d2:53:8c:ee:51:2d:3c:4c:
+                    d5:30:c8:0f:a7:7e:eb:94:3c:1a:ad:38:b1:01:dd:
+                    e1:2d:f0:88:27:d9:4e:72:c7:bc:ae:e4:32:8e:34:
+                    d6:44:1f:1e:d5:fb:99:c8:13:95:56:06:a2:46:4f:
+                    d9:f9:f5:d7:60:fc:b7:49:99:a3:50:5f:b3:76:7c:
+                    08:fb
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Authority Key Identifier:
+                keyid:0C:F9:23:D5:CF:A6:F4:EF:4D:46:D8:15:00:D9:E8:A8:E8:19:F8:04
+
+            Authority Information Access:
+                CA Issuers - URI:http://ejbca-node1.ejbca-k8s/ejbca/publicweb/certificates/search.cgi?sKIDHash=DPkj1c%2Bm9O9NRtgVANnoqOgZ%2BAQ
+                OCSP - URI:http://ejbca-node1.ejbca-k8s/ejbca/publicweb/status/ocsp
+
+            X509v3 Subject Alternative Name:
+                DNS:pqc-servertls.test
+            X509v3 Extended Key Usage:
+                TLS Web Server Authentication
+            X509v3 CRL Distribution Points:
+
+                Full Name:
+                  URI:http://ejbca-node1.ejbca-k8s/ejbca/publicweb/crls/search.cgi?sKIDHash=DPkj1c%2Bm9O9NRtgVANnoqOgZ%2BAQ
+
+            X509v3 Subject Key Identifier:
+                75:EA:31:C4:C3:E6:D6:B4:8A:45:AE:85:C7:EC:19:13:8E:63:E6:2E
+            X509v3 Key Usage: critical
+                Digital Signature, Key Encipherment
+            2.5.29.73:
+..+..........   0
+            2.5.29.74:
+kM.......# Y......}..1T(^.....}..;..P.(a.&.^...:VVZS
+...Mo..P.TvI9D...Sv.A.q_..F.]
+.8&...}...Y..n...y...@...
+..T_j..n..5....A;...Wi7\)....!....d.E.5..(...0.>...:d$.....c..$....2;..1;i....h..u..d.B^.Yu.[H...!.....v:...^.D..O..Z7..D..>..r....4.4glr.L.6..Oed....r..V&.[.Q..'.s~U0^9..3..0.m..h...P..5.Q..,..3x..~.T..M..wmq.
+.*}......\.....T@(k..a.M..0.....Y..m......?.;.........zA........g....A.'f+.[5/..a......N...Oh..AG....9._OKU.dn.....eTv}<9....0.....,..t.....pB.\.#....c3......B.j...$.6W..`....K.;.K.#/PG.Rs5..s:_.eT-.Q.b..)....."5%......=b...^ow.....K.....*..QnM.l..z..%..(6..S$:...:.6.-......]a.....6.w...O
+......w|:k.~d....c.{.. P.lR?.=......1..a..x..2]5t...{t~...["KMy......pm....kr.......7*....\....aH^.n..e..o..N....ovY....=..!R/N...q.^V...$V
+&~..;.Lx..~.O.....E.&H..%...:.5."...-.*.G.j.".kd......n.|..s.m......JQ....g.....W=.=....m....../...../6....K....W.%}................B?O...a......V@.....o~9.+2...'k....M.J.....Uy.V.../...VL..Cl,_,.mb...z...........#...P..D...hY..{ot.#.Z..&..6...#M...M.c./oS...h<(.ChB...VG..t....y....I..'MpY:zU.&..6.#.........9....:w.|....p...|..I......\.8l.......y4....1.l..
+....o~12w...+.?.h.....j4..#w...h.~...0.+...X......M.K.K...P.QE..Jm.:.u.......A.`....t........&.tga.MqP..x.}1..C...R.0.Ws.t5..7...2..'....:.[.1@.6.}....[...kh...(...r.....7.j....T6.n..@....N$\ul...~CU.. ..,.R.....\.....j.....N..M..W.f.e......r.......\.@.....N..A....*..5...U.}XT.>.=.J<...cb...D..s...-.P.jk..y.....%..$.........b*.i.4.w.c".O.RN...$N..r.^.M..N...".....4.Y..5>.....x.`+...F4...2..{<.q.......\.KX....S...kF....u.,g.e9...=..J...:..%.w.a..j+p..........[...S\=....H_.......fo.w.n.q.dX4;....5+.....Ipep.:...(._(...M._.g.y.......
+.....c..
+.w.\...B......;S.....8..<.|....8;.. ,lkhh.F....)!]9..}0.b.+........_..v...c.nL..;0..bd%.)...b...........VA6f.p......R..E{.e.i.1...9........sy.....i..g....kg....>....V.)O.J.E/.'H4j.]........h/....."....z..w.........%.N...Q...l..z...}./9&.%1z.........x.....khyO.]O+.Zn{=.........\...5...........2A...+i...`&!. ;..-L.n#u7y\..;...m..uk....8.me{.\]...y>....!.}.$._...o....{=R.>.&..!Ib..b.............1..{R.Ia..L..4...q.3,N...ns....b_..d.Zq..c...w>;..z.......l.m.,s. .............])\....@<.......4A...._F..$.cu ..r.n.~.+ZrK...$.d..2d...Y
+.Vto].m...d_..N.b...G...<..uj...g..c..\;,...Us.SJ+..
+....t?K......7..6..tu......?.R..B.;rh.l..E....I...F..$.r..x.X|..|..A...A.........Ka4;..M...g6....(.L.~..C..:.r..K=.[..h..wSt...80<..........a.\.{..c{g....J...q.ly.oC.3[.n.x........H.h.8.....Da:........d......E..c.m..`.<.>O..(]..!p.rC.Z.5s.A....b...pL......j&.|......\,!Y"/h."....uW.M..%....X...S?.-f.O.,........._.Z(.....j]%..+..w>.D.<m..W.h......p.N..'.fysH..h....7.8../...d:y.....#...u.+-k53.....K..9.n..I..+..v....VrM...C?...]W'0[e.....................H...-<D.....8....>3...@.%n.%..Z...N5P.;.(....'-i..;m...$.<Q.....E+f..j...a.O...........d.......6..."CTt....
+...,
+    Signature Algorithm: rsassaPss
+         Hash Algorithm: sha256
+         Mask Algorithm: mgf1 with sha256
+          Salt Length: 0x20
+         Trailer Field: 0xBC (default)
+
+         76:2b:51:08:3f:39:1c:e8:61:53:3c:21:7c:2e:de:b6:eb:9d:
+         55:86:10:5c:c6:e9:31:c4:63:72:b3:35:55:76:0c:32:44:23:
+         47:16:de:93:97:86:42:00:0c:68:1e:66:de:0e:c4:4c:7c:7e:
+         04:fd:b2:f7:f0:f8:a2:4a:bd:27:e4:e0:0a:0f:2a:30:81:c6:
+         8e:68:75:ba:80:8a:68:7b:cd:a2:92:3e:8f:a5:a7:0a:75:d8:
+         9c:63:64:71:7c:0d:d5:4b:f1:20:51:34:7e:ac:1f:6c:ed:87:
+         a0:8e:af:f5:2f:1a:e2:c9:f6:8b:8f:d9:2b:70:af:a3:40:00:
+         e9:87:0f:9e:b1:06:6e:c2:43:fb:6b:20:70:1f:0b:e3:16:85:
+         aa:5e:99:3b:b9:fd:d3:5e:2e:b3:27:96:ad:2f:bf:90:01:db:
+         aa:ff:0f:0c:0f:b2:8e:0f:59:a5:55:e6:79:5d:0c:89:19:d3:
+         13:f2:12:a1:3e:7e:18:87:c0:f2:66:f1:49:07:f3:34:fb:0d:
+         a0:8b:db:1b:ea:f8:95:88:74:41:47:17:d5:95:3d:3a:fc:07:
+         c7:51:80:be:06:84:d3:8c:b1:6f:48:f4:81:3e:c0:ba:b2:8d:
+         4e:72:37:16:1e:e4:41:37:4b:42:58:eb:79:5a:30:6f:0f:53:
+         50:c4:fa:65:9d:87:cb:e2:06:cb:fe:06:67:72:3c:ba:53:09:
+         bd:a6:5f:cc:69:f3:d0:6b:3f:39:58:87:81:eb:d6:05:bf:a3:
+         94:21:23:ea:ae:b9:8a:39:b7:84:76:d5:3d:9d:c5:51:bb:06:
+         93:45:a9:a2:20:d1:5e:1d:47:19:39:75:bc:a2:19:bf:3a:d5:
+         5c:6f:9c:66:67:e1:81:fd:ed:c6:43:63:bf:7a:4d:25:d6:f6:
+         29:e2:ea:12:3b:27:f0:51:93:bb:06:d6:ff:07:07:4f:61:e6:
+         b5:a0:be:34:02:de:ea:e6:9f:2e:8d:79:4a:9e:cf:fd:fa:76:
+         4e:87:86:a6:a3:00:f5:92:cb:24:6c:ee:38:fc:26:14:ed:4a:
+         22:77:ac:79:3c:03:5e:b7:63:94:42:e0:54:16:1c:7c:43:c0:
+         e9:4a:b6:1d:48:d3:62:e7:1e:05:ca:1d:99:fd:87:48:fc:bd:
+         9f:5b:8c:cf:c8:2c:0e:96:0b:b2:e7:ac:dd:b4:8a:45:3b:22:
+         96:a6:5a:3a:21:bd:b9:fe:bc:d3:65:45:d0:cd:c3:cd:eb:91:
+         21:91:95:1d:ea:00:9e:f2:b6:df:7a:16:47:68:74:80:af:22:
+         d1:a7:8b:74:a8:c8:a5:94:79:c4:62:4d:8d:01:fd:dd:19:0c:
+         15:c5:da:66:ee:4c:c5:d6
+Copy
+Review the output, paying attention to the OIDs 2.5.29.73: alternate signature algorithm, and 2.5.29.74: the alternate signature.
+
+You have now parsed the PQC Chimera certificate with OpenSSL to review the extensions in the certificate.
+
+Next steps
+In this guide, you learned how to create a PQC Chimera CA chain and issue a PQC Chimera signed server TLS certificate. You can now issue some more certificates and try using a PQC Chimera signed server TLS certificate on a web server.
+
+Here are some next steps we recommend:
+
+To issue a Chimera PQC certificate with ML-KEM, follow the guide Issue a PQC Chimera End Entity Certificate with ML-KEM.
+
+For more information about the EJBCA Container Set, see EJBCA Container Overview.
+
+If you are interested in EJBCA Enterprise, read more on Keyfactor EJBCA Enterprise.
+
+If you are interested in EJBCA Community, check out EJBCA Community vs Enterprise or read more on ejbca.org.
+
+If you are an EJBCA Enterprise customer and need support, visit the Keyfactor Support Portal.
+
+Discuss with the EJBCA Community on GitHub Discussions. 

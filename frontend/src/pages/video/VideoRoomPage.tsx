@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { endVideoSessionApi, joinVideoRoomApi, verifyVideoTokenApi } from '../../features/requests/requestApi';
+import {
+  endVideoSessionApi,
+  joinVideoRoomApi,
+  saveVideoEvidenceApi,
+  signVideoDocumentApi,
+  verifyVideoTokenApi,
+} from '../../features/requests/requestApi';
 import { getAuthSession } from '../../lib/authStorage';
 import { toApiErrorMessage } from '../../lib/apiError';
 import { VIDEO_SIGNALING_WS_URL } from '../../lib/config';
@@ -17,7 +24,23 @@ type SetupStage =
   | 'CONNECTED';
 
 interface SignalingMessage {
-  type: 'JOIN' | 'JOINED' | 'READY' | 'OFFER' | 'ANSWER' | 'ICE' | 'LEAVE' | 'PEER_LEFT' | 'ERROR' | 'END';
+  type:
+    | 'JOIN'
+    | 'JOINED'
+    | 'READY'
+    | 'OFFER'
+    | 'ANSWER'
+    | 'ICE'
+    | 'LEAVE'
+    | 'PEER_LEFT'
+    | 'ERROR'
+    | 'END'
+    | 'SESSION_CONTROL'
+    | 'DOCUMENT_PRESENTATION'
+    | 'CLIENT_CONSENT'
+    | 'SIGNATURE_COMPLETED'
+    | 'EVIDENCE_CAPTURED'
+    | 'RECORDING_STATE';
   roomId?: string;
   token?: string;
   authToken?: string;
@@ -25,6 +48,46 @@ interface SignalingMessage {
   sender?: string;
   message?: string;
 }
+
+interface DocumentPresentation {
+  documentId?: string;
+  title: string;
+  version?: string;
+  fileUrl?: string;
+  viewUrl?: string;
+  downloadUrl?: string;
+  contentType?: string | null;
+  updatedAt?: string | null;
+  content?: string;
+  presenter: string;
+  startedAt: string;
+}
+
+interface EvidenceSnapshot {
+  id: string;
+  dataUrl: string;
+  capturedAt: string;
+}
+
+interface SignaturePlacement {
+  pageNumber: number;
+  xPercent: number;
+  yPercent: number;
+  widthPercent: number;
+  heightPercent: number;
+}
+
+const DEFAULT_PRESENTATION: DocumentPresentation = {
+  title: 'Bản dự thảo hợp đồng công chứng',
+  version: 'Bản trình chiếu cuối cùng',
+  presenter: '',
+  startedAt: '',
+  content:
+    '1. Các bên đã kiểm tra thông tin nhân thân, giấy tờ liên quan và năng lực hành vi dân sự.\n\n' +
+    '2. Nội dung giao dịch được đọc lại trong phiên công chứng trực tuyến để người dân tự rà soát trước khi xác nhận.\n\n' +
+    '3. Người dân chỉ bấm xác nhận đồng ý sau khi đã hiểu đầy đủ quyền, nghĩa vụ và hậu quả pháp lý của văn bản.\n\n' +
+    '4. Toàn bộ phiên làm việc được hệ thống ghi hình, ghi âm và lưu lại làm căn cứ đối chiếu.',
+};
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
@@ -67,6 +130,99 @@ function stopAllMediaTracks(): void {
   }
 }
 
+function attachStreamToVideo(video: HTMLVideoElement | null, stream: MediaStream | null, muted = false): void {
+  if (!video || !stream) {
+    return;
+  }
+
+  if (video.srcObject !== stream) {
+    video.srcObject = stream;
+  }
+  video.muted = muted;
+  video.playsInline = true;
+
+  const playPromise = video.play();
+  if (playPromise) {
+    playPromise.catch(() => {
+      // Mobile browsers can defer playback until the page is visible/focused again.
+    });
+  }
+}
+
+function buildDocumentFileUrl(documentId: string | undefined, action: 'view' | 'download'): string {
+  if (!documentId) {
+    return '';
+  }
+
+  return action === 'view' ? `/api/documents/${documentId}/view` : `/api/documents/${documentId}`;
+}
+
+function buildDocumentPageImageUrl(documentId: string | undefined, pageNumber: number, version?: string | null): string {
+  if (!documentId) {
+    return '';
+  }
+
+  const params = version ? `?v=${encodeURIComponent(version)}` : '';
+  return `/api/documents/${documentId}/pages/${pageNumber}/image${params}`;
+}
+
+function isPdfPresentation(presentation: DocumentPresentation): boolean {
+  const contentType = presentation.contentType?.toLowerCase() ?? '';
+  const source = `${presentation.fileUrl ?? ''} ${presentation.viewUrl ?? ''} ${presentation.downloadUrl ?? ''} ${presentation.title ?? ''}`.toLowerCase();
+  return contentType.includes('pdf') || source.includes('.pdf');
+}
+
+function canPreviewInline(presentation: DocumentPresentation): boolean {
+  const contentType = presentation.contentType?.toLowerCase() ?? '';
+  const source = (presentation.fileUrl || presentation.viewUrl || presentation.title || '').toLowerCase();
+  return contentType.startsWith('application/pdf')
+    || contentType.startsWith('image/')
+    || source.endsWith('.pdf')
+    || source.endsWith('.png')
+    || source.endsWith('.jpg')
+    || source.endsWith('.jpeg');
+}
+
+function ContractPresentationViewer({
+  active,
+  compact = false,
+  presentation,
+}: {
+  active: boolean;
+  compact?: boolean;
+  presentation: DocumentPresentation;
+}) {
+  const canPreview = Boolean(active && presentation.viewUrl && canPreviewInline(presentation));
+
+  return (
+    <div className={`document-viewer document-file-viewer ${active ? 'active' : ''} ${compact ? 'compact' : ''}`}>
+      <div className="document-viewer-head">
+        <div>
+          <b>{presentation.title}</b>
+          <span>{presentation.version ? `Phiên bản ${presentation.version}` : 'Dự thảo hợp đồng'}</span>
+        </div>
+        {presentation.downloadUrl ? (
+          <a href={presentation.downloadUrl} target="_blank" rel="noreferrer" className="document-open-link">
+            Mở file
+          </a>
+        ) : null}
+      </div>
+
+      {canPreview ? (
+        <iframe src={presentation.viewUrl} title={presentation.title} />
+      ) : active && presentation.viewUrl ? (
+        <div className="document-placeholder">
+          File mẫu văn bản này không hỗ trợ xem trực tiếp trong trình duyệt. Hãy mở file để đối chiếu nội dung khi trình chiếu.
+        </div>
+      ) : active && presentation.content ? (
+        <pre>{presentation.content}</pre>
+      ) : (
+        <div className="document-placeholder">Công chứng viên chưa trình chiếu dự thảo hợp đồng.</div>
+      )}
+    </div>
+  );
+}
+
 export function VideoRoomPage() {
   const { roomId = '' } = useParams();
   const [searchParams] = useSearchParams();
@@ -87,26 +243,117 @@ export function VideoRoomPage() {
   const [micOn, setMicOn] = useState(true);
   const [showSignModal, setShowSignModal] = useState(false);
   const [signatureData, setSignatureData] = useState<string | null>(null);
+  const [signatureTouched, setSignatureTouched] = useState(false);
+  const [placementPreviewError, setPlacementPreviewError] = useState('');
+  const [signaturePlacement, setSignaturePlacement] = useState<SignaturePlacement>({
+    pageNumber: 1,
+    xPercent: 58,
+    yPercent: 72,
+    widthPercent: 28,
+    heightPercent: 10,
+  });
   const [isSigning, setIsSigning] = useState(false);
+  const [sessionStarted, setSessionStarted] = useState(false);
+  const [recordingActive, setRecordingActive] = useState(true);
+  const [presentationActive, setPresentationActive] = useState(false);
+  const [presentation, setPresentation] = useState<DocumentPresentation>(DEFAULT_PRESENTATION);
+  const [clientConsentAt, setClientConsentAt] = useState<string | null>(null);
+  const [clientSignedAt, setClientSignedAt] = useState<string | null>(null);
+  const [notarySignedAt, setNotarySignedAt] = useState<string | null>(null);
+  const [evidenceSnapshots, setEvidenceSnapshots] = useState<EvidenceSnapshot[]>([]);
+  const [evidenceSaving, setEvidenceSaving] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const signatureDrawingRef = useRef(false);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const hasCreatedOfferRef = useRef(false);
   const disposedRef = useRef(false);
 
   const canEndSession = authSession?.role?.toUpperCase() === 'NOTARY';
+  const isNotary = authSession?.role?.toUpperCase() === 'NOTARY';
+  const isClient = authSession?.role?.toUpperCase() === 'CLIENT';
+  const draftDocument = sessionInfo?.draftDocument ?? null;
+  const requiresTemplate = sessionInfo?.requiresTemplate !== false;
+  const sessionLayoutClass = `video-session-layout ${presentationActive ? 'presenting' : 'standalone'}`;
+  const canClientSign = requiresTemplate && isClient && presentationActive && !!clientConsentAt && !clientSignedAt;
+  const canNotarySign = isNotary && !!clientConsentAt && (!requiresTemplate || !!clientSignedAt) && !notarySignedAt;
+  const signaturePageImageUrl = isPdfPresentation(presentation)
+    ? buildDocumentPageImageUrl(presentation.documentId, signaturePlacement.pageNumber, presentation.updatedAt)
+    : '';
 
-  // Register beforeunload and pagehide as last-resort camera/mic release
+  useEffect(() => {
+    if (!showSignModal) {
+      return;
+    }
+
+    setPlacementPreviewError('');
+
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+
+    const ratio = window.devicePixelRatio || 1;
+    const width = 640;
+    const height = 220;
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+    canvas.style.width = '100%';
+    canvas.style.height = '220px';
+
+    const context = canvas.getContext('2d');
+    if (!context) {
+      return;
+    }
+
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, width, height);
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.lineWidth = 3;
+    context.strokeStyle = '#0f172a';
+    setSignatureTouched(false);
+    setSignatureData(null);
+  }, [showSignModal]);
+
+  useEffect(() => {
+    setPlacementPreviewError('');
+  }, [signaturePageImageUrl]);
+
+  // Register beforeunload as a last-resort camera/mic release.
+  // Do not stop on pagehide: Chrome mobile fires it when users briefly switch apps.
   useEffect(() => {
     const handlePageExit = () => stopAllMediaTracks();
     window.addEventListener('beforeunload', handlePageExit);
-    window.addEventListener('pagehide', handlePageExit);
     return () => {
       window.removeEventListener('beforeunload', handlePageExit);
-      window.removeEventListener('pagehide', handlePageExit);
+    };
+  }, []);
+
+  useEffect(() => {
+    const resumeVideoElements = () => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+      attachStreamToVideo(localVideoRef.current, localStreamRef.current ?? _activeMediaStream, true);
+      const remoteStream = remoteVideoRef.current?.srcObject instanceof MediaStream
+        ? remoteVideoRef.current.srcObject
+        : null;
+      attachStreamToVideo(remoteVideoRef.current, remoteStream, false);
+    };
+
+    window.addEventListener('focus', resumeVideoElements);
+    document.addEventListener('visibilitychange', resumeVideoElements);
+
+    return () => {
+      window.removeEventListener('focus', resumeVideoElements);
+      document.removeEventListener('visibilitychange', resumeVideoElements);
     };
   }, []);
 
@@ -183,6 +430,61 @@ export function VideoRoomPage() {
     }
 
     ws.send(JSON.stringify(message));
+  };
+
+  const buildPresentationPayload = (): DocumentPresentation => ({
+    ...DEFAULT_PRESENTATION,
+    presenter: authSession?.email ?? 'Công chứng viên',
+    startedAt: new Date().toISOString(),
+  });
+
+  const buildDraftPresentationPayload = (): DocumentPresentation | null => {
+    if (!draftDocument) {
+      return buildPresentationPayload();
+    }
+
+    if (!draftDocument.documentId) {
+      setError('Mẫu văn bản của yêu cầu này thiếu mã file. Vui lòng tải lại file trước khi trình chiếu.');
+      return null;
+    }
+
+    return {
+      documentId: draftDocument.documentId,
+      title: draftDocument.displayName || draftDocument.originalFileName || 'Mẫu văn bản hồ sơ',
+      version: '',
+      fileUrl: draftDocument.filePath,
+      viewUrl: buildDocumentFileUrl(draftDocument.documentId, 'view'),
+      downloadUrl: buildDocumentFileUrl(draftDocument.documentId, 'download'),
+      contentType: draftDocument.contentType,
+      updatedAt: draftDocument.updatedAt,
+      presenter: authSession?.email ?? 'Công chứng viên',
+      startedAt: new Date().toISOString(),
+    };
+  };
+
+  const applyPresentationPayload = (payload: unknown) => {
+    if (!payload || typeof payload !== 'object') {
+      return;
+    }
+
+    const next = payload as Partial<DocumentPresentation> & { active?: boolean };
+    if (typeof next.active === 'boolean') {
+      setPresentationActive(next.active);
+    }
+
+    setPresentation({
+      documentId: next.documentId,
+      title: next.title || DEFAULT_PRESENTATION.title,
+      version: next.version || DEFAULT_PRESENTATION.version,
+      fileUrl: next.fileUrl,
+      viewUrl: next.viewUrl,
+      downloadUrl: next.downloadUrl,
+      contentType: next.contentType,
+      updatedAt: next.updatedAt,
+      content: next.content || DEFAULT_PRESENTATION.content,
+      presenter: next.presenter || '',
+      startedAt: next.startedAt || new Date().toISOString(),
+    });
   };
 
   const closeConnections = (notifyLeave: boolean) => {
@@ -272,7 +574,7 @@ export function VideoRoomPage() {
         }
 
         const localStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
+          video: { facingMode: 'user' },
           audio: true,
         });
 
@@ -296,9 +598,7 @@ export function VideoRoomPage() {
         setCameraOn(streamHasVideo(localStream));
         setMicOn(streamHasAudio(localStream));
 
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = localStream;
-        }
+        attachStreamToVideo(localVideoRef.current, localStream, true);
 
         const createPeerConnection = (): RTCPeerConnection => {
           const oldPc = peerConnectionRef.current;
@@ -318,7 +618,7 @@ export function VideoRoomPage() {
           pc.ontrack = (event) => {
             const [remoteStream] = event.streams;
             if (remoteVideoRef.current && remoteStream) {
-              remoteVideoRef.current.srcObject = remoteStream;
+              attachStreamToVideo(remoteVideoRef.current, remoteStream, false);
               setPeerConnected(true);
               setStatusText('Đã kết nối với đối tác.');
             }
@@ -369,6 +669,67 @@ export function VideoRoomPage() {
 
           if (message.type === 'ERROR') {
             setError(message.message || 'Không thể thiết lập kết nối video.');
+            return;
+          }
+
+          if (message.type === 'END') {
+            setStatusText(message.message || 'Phiên công chứng đã được kết thúc.');
+            stopAllMediaTracks();
+            localStreamRef.current = null;
+            disposedRef.current = true;
+            closeConnections(false);
+            navigate(getDefaultRouteByRole(authSession?.role), { replace: true });
+            return;
+          }
+
+          if (message.type === 'SESSION_CONTROL') {
+            const payload = message.payload as { action?: string } | undefined;
+            setSessionStarted(payload?.action === 'START');
+            setStatusText(payload?.action === 'START' ? 'Phiên công chứng đã bắt đầu.' : 'Phiên công chứng đã tạm dừng.');
+            return;
+          }
+
+          if (message.type === 'DOCUMENT_PRESENTATION') {
+            applyPresentationPayload(message.payload);
+            setClientConsentAt(null);
+            setClientSignedAt(null);
+            setNotarySignedAt(null);
+            return;
+          }
+
+          if (message.type === 'CLIENT_CONSENT') {
+            const payload = message.payload as { confirmedAt?: string } | undefined;
+            setClientConsentAt(payload?.confirmedAt || new Date().toISOString());
+            return;
+          }
+
+          if (message.type === 'SIGNATURE_COMPLETED') {
+            const payload = message.payload as {
+              role?: string;
+              signedAt?: string;
+              completed?: boolean;
+              requestStatus?: string;
+            } | undefined;
+            const signedAt = payload?.signedAt || new Date().toISOString();
+            if (payload?.role === 'CLIENT') {
+              setClientSignedAt(signedAt);
+            } else if (payload?.role === 'NOTARY') {
+              setNotarySignedAt(signedAt);
+            }
+            if (payload?.completed) {
+              setStatusText('Hai bên đã ký số. Hồ sơ đã chuyển sang chờ thanh toán.');
+            }
+            return;
+          }
+
+          if (message.type === 'EVIDENCE_CAPTURED') {
+            setStatusText('Công chứng viên đã chụp ảnh bằng chứng đối chiếu.');
+            return;
+          }
+
+          if (message.type === 'RECORDING_STATE') {
+            const payload = message.payload as { active?: boolean } | undefined;
+            setRecordingActive(payload?.active !== false);
             return;
           }
 
@@ -568,17 +929,289 @@ export function VideoRoomPage() {
     }
   };
 
+  const handleStartSession = () => {
+    setSessionStarted(true);
+    setRecordingActive(true);
+    sendSignal({
+      type: 'SESSION_CONTROL',
+      roomId,
+      payload: { action: 'START', startedAt: new Date().toISOString() },
+    });
+    sendSignal({
+      type: 'RECORDING_STATE',
+      roomId,
+      payload: { active: true, updatedAt: new Date().toISOString() },
+    });
+    setStatusText('Phiên công chứng đã bắt đầu.');
+  };
+
+  const handleTogglePresentation = () => {
+    if (presentationActive) {
+      setPresentationActive(false);
+      sendSignal({
+        type: 'DOCUMENT_PRESENTATION',
+        roomId,
+        payload: { active: false, title: presentation.title, version: presentation.version },
+      });
+      return;
+    }
+
+    if (!draftDocument) {
+      setError('Yêu cầu này chưa có file mẫu văn bản. Công chứng viên cần tải file trước khi lên lịch hẹn.');
+      return;
+    }
+
+    const nextPresentation = buildDraftPresentationPayload();
+    if (!nextPresentation) {
+      return;
+    }
+
+    setPresentation(nextPresentation);
+    setPresentationActive(true);
+    setClientConsentAt(null);
+    setClientSignedAt(null);
+    setNotarySignedAt(null);
+    sendSignal({
+      type: 'DOCUMENT_PRESENTATION',
+      roomId,
+      payload: { ...nextPresentation, active: true },
+    });
+  };
+
+  const handleStartDocumentReview = () => {
+    const nextPresentation = {
+      ...buildPresentationPayload(),
+      title: 'Đối soát giấy tờ chứng thực',
+      version: 'Phiên đối soát trực tuyến',
+      content:
+        'Công chứng viên đang đối chiếu giấy tờ gốc/tài liệu nguồn với người dân qua video call.\n\n' +
+        'Người dân xác nhận thông tin và tài liệu được đối chiếu là đúng trước khi công chứng viên ký số chứng thực.',
+    };
+    setPresentation(nextPresentation);
+    setPresentationActive(true);
+    setClientConsentAt(null);
+    setClientSignedAt(null);
+    setNotarySignedAt(null);
+    sendSignal({
+      type: 'DOCUMENT_PRESENTATION',
+      roomId,
+      payload: { ...nextPresentation, active: true },
+    });
+  };
+
+  const handleClientConsent = () => {
+    const confirmedAt = new Date().toISOString();
+    setClientConsentAt(confirmedAt);
+    setClientSignedAt(null);
+    setNotarySignedAt(null);
+    sendSignal({
+      type: 'CLIENT_CONSENT',
+      roomId,
+      payload: { confirmedAt, email: authSession?.email },
+    });
+  };
+
+  const handleCaptureEvidence = async () => {
+    if (!sessionInfo?.sessionId) {
+      setError('Chưa có thông tin phiên để lưu ảnh bằng chứng.');
+      return;
+    }
+
+    const video = remoteVideoRef.current;
+    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      setError('Chưa có khung hình khách hàng để chụp bằng chứng.');
+      return;
+    }
+
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      setError('Không thể khởi tạo công cụ chụp ảnh bằng chứng.');
+      return;
+    }
+
+    context.drawImage(video, 0, 0, width, height);
+    const capturedAt = new Date().toISOString();
+    const snapshot: EvidenceSnapshot = {
+      id: `${capturedAt}-${evidenceSnapshots.length + 1}`,
+      dataUrl: canvas.toDataURL('image/jpeg', 0.86),
+      capturedAt,
+    };
+
+    setEvidenceSaving(true);
+    setError('');
+    try {
+      await saveVideoEvidenceApi(sessionInfo.sessionId, snapshot.dataUrl);
+      setEvidenceSnapshots((items) => [snapshot, ...items].slice(0, 6));
+      sendSignal({
+        type: 'EVIDENCE_CAPTURED',
+        roomId,
+        payload: { capturedAt, by: authSession?.email },
+      });
+    } catch (captureError) {
+      setError(toApiErrorMessage(captureError, 'Không thể lưu ảnh bằng chứng vào hồ sơ.'));
+    } finally {
+      setEvidenceSaving(false);
+    }
+  };
+
+  const getCanvasPoint = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) {
+      return { x: 0, y: 0 };
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const ratio = window.devicePixelRatio || 1;
+    const logicalWidth = canvas.width / ratio;
+    const logicalHeight = canvas.height / ratio;
+    return {
+      x: (event.clientX - rect.left) * (logicalWidth / rect.width),
+      y: (event.clientY - rect.top) * (logicalHeight / rect.height),
+    };
+  };
+
+  const handleSignaturePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const canvas = signatureCanvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context || isSigning) {
+      return;
+    }
+
+    const point = getCanvasPoint(event);
+    signatureDrawingRef.current = true;
+    canvas.setPointerCapture(event.pointerId);
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+    setSignatureTouched(true);
+  };
+
+  const handleSignaturePointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!signatureDrawingRef.current) {
+      return;
+    }
+
+    const context = signatureCanvasRef.current?.getContext('2d');
+    if (!context) {
+      return;
+    }
+
+    const point = getCanvasPoint(event);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+  };
+
+  const handleSignaturePointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const canvas = signatureCanvasRef.current;
+    if (canvas?.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+    signatureDrawingRef.current = false;
+  };
+
+  const handleClearSignature = () => {
+    const canvas = signatureCanvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context) {
+      return;
+    }
+
+    const ratio = window.devicePixelRatio || 1;
+    const logicalWidth = canvas.width / ratio;
+    const logicalHeight = canvas.height / ratio;
+    context.clearRect(0, 0, logicalWidth, logicalHeight);
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, logicalWidth, logicalHeight);
+    setSignatureTouched(false);
+    setSignatureData(null);
+  };
+
+  const handlePickSignaturePlacement = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (isSigning || !signaturePageImageUrl || placementPreviewError) {
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const centerX = ((event.clientX - rect.left) / rect.width) * 100;
+    const centerY = ((event.clientY - rect.top) / rect.height) * 100;
+    const widthPercent = signaturePlacement.widthPercent;
+    const heightPercent = signaturePlacement.heightPercent;
+
+    setSignaturePlacement((current) => ({
+      ...current,
+      xPercent: Math.max(0, Math.min(100 - widthPercent, centerX - widthPercent / 2)),
+      yPercent: Math.max(0, Math.min(100 - heightPercent, centerY - heightPercent / 2)),
+    }));
+  };
+
   const handleSignContract = async () => {
+    const role = authSession?.role?.toUpperCase();
+    if (role === 'CLIENT' && !canClientSign) {
+      setError('Bạn cần xác nhận đồng ý văn bản trước khi ký số.');
+      return;
+    }
+    if (role === 'NOTARY' && !canNotarySign) {
+      setError('Chỉ hiển thị ký số cho công chứng viên sau khi người dân đã ký.');
+      return;
+    }
+    if (!sessionInfo?.sessionId) {
+      setError('Chưa có thông tin phiên để ký số.');
+      return;
+    }
+    if (!presentation.documentId) {
+      setError('Chưa có văn bản trình chiếu để ký số.');
+      return;
+    }
+    if (!signatureTouched) {
+      setError('Vui lòng vẽ chữ ký trước khi xác nhận ký.');
+      return;
+    }
+
     setIsSigning(true);
     setError('');
     try {
-      const mockSignatureBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-      setSignatureData(mockSignatureBase64);
+      const signatureValue = signatureCanvasRef.current?.toDataURL('image/png');
+      if (!signatureValue) {
+        setError('Không thể đọc dữ liệu chữ ký. Vui lòng ký lại.');
+        return;
+      }
+      setSignatureData(signatureValue);
 
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const signResult = await signVideoDocumentApi(
+        sessionInfo.sessionId,
+        presentation.documentId,
+        signatureValue,
+        signaturePlacement,
+      );
 
-      alert('✓ Ký số thành công! Hợp đồng đã được ký điện tử và lưu vào hệ thống.');
+      const signedAt = new Date().toISOString();
+      if (role === 'CLIENT') {
+        setClientSignedAt(signedAt);
+      } else if (role === 'NOTARY') {
+        setNotarySignedAt(signedAt);
+      }
+      if (signResult.completed) {
+        setStatusText('Hai bên đã ký số. Hồ sơ đã chuyển sang chờ thanh toán.');
+      }
+      sendSignal({
+        type: 'SIGNATURE_COMPLETED',
+        roomId,
+        payload: {
+          role,
+          signedAt,
+          email: authSession?.email,
+          completed: signResult.completed,
+          requestStatus: signResult.requestStatus,
+        },
+      });
+
       setShowSignModal(false);
+      setSignatureData(null);
+      setSignatureTouched(false);
     } catch (err) {
       setError(toApiErrorMessage(err, 'Không thể ký số hợp đồng.'));
     } finally {
@@ -617,22 +1250,210 @@ export function VideoRoomPage() {
           </div>
         ) : null}
 
-        <section className="video-grid">
-          <article className="video-tile">
-            <div className="video-tile-head">
-              <span>Bạn</span>
-              <span>{cameraOn ? 'Camera bật' : 'Camera tắt'} • {micOn ? 'Mic bật' : 'Mic tắt'}</span>
+        <section className={sessionLayoutClass}>
+          {presentationActive ? (
+            <section className="video-document-panel">
+              <div className="panel-header">
+                <div>
+                  <span className="panel-eyebrow">Văn bản trình chiếu</span>
+                  <h2>{presentation.title}</h2>
+                </div>
+                <span className={`status-badge ${clientConsentAt ? 'badge-green' : 'badge-blue'}`}>
+                  {clientConsentAt ? 'Đã xác nhận' : 'Đang trình chiếu'}
+                </span>
+              </div>
+              <ContractPresentationViewer active={presentationActive} presentation={presentation} />
+            </section>
+          ) : null}
+          <div className="video-media-card">
+            <div className="video-media-head">
+              <div>
+                <span className="panel-eyebrow">{isNotary ? 'Video người dân' : 'Video công chứng viên'}</span>
+                <h2>{peerConnected ? 'Đang kết nối hình ảnh' : 'Đang chờ người tham gia'}</h2>
+              </div>
+              <div className={`recording-pill ${recordingActive ? 'active' : ''}`}>
+                <span className="recording-dot" />
+                {recordingActive ? 'Ghi hình/Ghi âm' : 'Chưa ghi'}
+              </div>
             </div>
-            <video ref={localVideoRef} autoPlay muted playsInline />
-          </article>
 
-          <article className="video-tile">
-            <div className="video-tile-head">
-              <span>Đối tác</span>
-              <span>{peerConnected ? 'Đang online' : 'Đang chờ vào phòng'}</span>
+            <div className="video-stage">
+              <video ref={remoteVideoRef} autoPlay playsInline />
+              {!peerConnected ? <div className="video-empty-state">Chưa có tín hiệu video từ đối tác</div> : null}
             </div>
-            <video ref={remoteVideoRef} autoPlay playsInline />
-          </article>
+
+            <div className="video-local-strip">
+              <article className="video-local-tile">
+                <div className="video-tile-head">
+                  <span>Bạn</span>
+                  <span>{cameraOn ? 'Camera bật' : 'Camera tắt'} · {micOn ? 'Mic bật' : 'Mic tắt'}</span>
+                </div>
+                <video ref={localVideoRef} autoPlay muted playsInline />
+              </article>
+
+              <div className="video-session-status">
+                <span className={`session-state-dot ${sessionStarted ? 'on' : ''}`} />
+                <div>
+                  <b>{sessionStarted ? 'Phiên đang diễn ra' : 'Chưa bắt đầu phiên'}</b>
+                  <span>{peerConnected ? 'Đường truyền hai chiều đã sẵn sàng' : statusText}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside className="video-work-panel">
+            {isClient ? (
+              <section className="presentation-card">
+                <div className="panel-header">
+                  <div>
+                    <span className="panel-eyebrow">Người dân</span>
+                    <h2>Xem văn bản trình chiếu</h2>
+                  </div>
+                  <span className={`status-badge ${presentationActive ? 'badge-green' : 'badge-gray'}`}>
+                    {presentationActive ? 'Đang trình chiếu' : 'Đang chờ'}
+                  </span>
+                </div>
+
+                {!sessionStarted ? (
+                  <div className="document-placeholder">Đang chờ công chứng viên bắt đầu phiên.</div>
+                ) : !presentationActive ? (
+                  <div className="document-placeholder">Phiên đã bắt đầu. Vui lòng chờ công chứng viên trình chiếu văn bản.</div>
+                ) : (
+                  <>
+                    <ContractPresentationViewer active={presentationActive} compact presentation={presentation} />
+
+                    {!clientConsentAt ? (
+                      <button type="button" className="primary-btn w-full" onClick={handleClientConsent}>
+                        Xác nhận đồng ý
+                      </button>
+                    ) : requiresTemplate && !clientSignedAt ? (
+                      <>
+                        <p className="confirmation-note">Đã xác nhận đồng ý lúc {new Date(clientConsentAt).toLocaleString('vi-VN')}.</p>
+                        <button type="button" className="primary-btn w-full" onClick={() => setShowSignModal(true)} disabled={isSigning}>
+                          Ký số hợp đồng
+                        </button>
+                      </>
+                    ) : !requiresTemplate ? (
+                      <p className="confirmation-note">Đã xác nhận đối soát lúc {new Date(clientConsentAt).toLocaleString('vi-VN')}. Vui lòng chờ công chứng viên ký số chứng thực.</p>
+                    ) : clientSignedAt && notarySignedAt ? (
+                      <p className="confirmation-note">Hai bên đã ký số. Hồ sơ đã chuyển sang chờ thanh toán.</p>
+                    ) : clientSignedAt ? (
+                      <p className="confirmation-note">Bạn đã ký số lúc {new Date(clientSignedAt).toLocaleString('vi-VN')}. Vui lòng chờ công chứng viên hoàn tất.</p>
+                    ) : (
+                      <p className="confirmation-note">Vui lòng chờ công chứng viên hoàn tất.</p>
+                    )}
+                  </>
+                )}
+              </section>
+            ) : null}
+
+            {isNotary ? (
+              <section className="notary-control-card">
+                <div className="panel-header">
+                  <div>
+                    <span className="panel-eyebrow">Công chứng viên</span>
+                    <h2>Điều khiển phiên</h2>
+                  </div>
+                  <span className={`status-badge ${clientConsentAt ? 'badge-green' : 'badge-yellow'}`}>
+                    {clientConsentAt ? 'Khách đã đồng ý' : 'Chờ xác nhận'}
+                  </span>
+                </div>
+
+                {requiresTemplate ? (
+                  <div className={`selected-template-chip ${draftDocument ? '' : 'missing'}`}>
+                    <span>Dự thảo trình chiếu</span>
+                    <b>{draftDocument?.displayName || draftDocument?.originalFileName || 'Chưa có file mẫu văn bản'}</b>
+                    {draftDocument ? <small>File gắn riêng với hồ sơ này</small> : null}
+                  </div>
+                ) : (
+                  <div className="selected-template-chip">
+                    <span>Luồng đối soát</span>
+                    <b>Không cần mẫu văn bản</b>
+                    <small>Công chứng viên đối chiếu giấy tờ và ký số chứng thực.</small>
+                  </div>
+                )}
+
+                {!sessionStarted ? (
+                  <div className="notary-control-grid">
+                    <button type="button" className="primary-btn" onClick={handleStartSession} disabled={busy || isEnding || !peerConnected}>
+                      Bắt đầu phiên
+                    </button>
+                  </div>
+                ) : !presentationActive ? (
+                  <>
+                    <div className="notary-control-grid">
+                      <button
+                        type="button"
+                        className="primary-btn"
+                        onClick={requiresTemplate ? handleTogglePresentation : handleStartDocumentReview}
+                        disabled={busy || (requiresTemplate && !draftDocument)}
+                      >
+                        {requiresTemplate ? 'Trình chiếu văn bản' : 'Bắt đầu đối soát giấy tờ'}
+                      </button>
+                    </div>
+                    <div className="document-placeholder">
+                      {requiresTemplate
+                        ? 'Sau khi bắt đầu phiên, hãy trình chiếu văn bản để người dân đối soát và xác nhận.'
+                        : 'Sau khi bắt đầu phiên, hãy bắt đầu đối soát giấy tờ để người dân xác nhận trước khi ký số chứng thực.'}
+                    </div>
+                  </>
+                ) : !clientConsentAt ? (
+                  <>
+                    <div className="notary-control-grid">
+                      <button type="button" className="link-btn" onClick={handleTogglePresentation} disabled={busy}>
+                        Dừng trình chiếu
+                      </button>
+                      <button type="button" className="link-btn" onClick={() => void handleCaptureEvidence()} disabled={busy || !peerConnected || evidenceSaving}>
+                        {evidenceSaving ? 'Đang lưu ảnh...' : 'Chụp ảnh bằng chứng'}
+                      </button>
+                    </div>
+                    <ContractPresentationViewer active={presentationActive} compact presentation={presentation} />
+                  </>
+                ) : requiresTemplate && !clientSignedAt ? (
+                  <>
+                    <p className="confirmation-note">Người dân đã xác nhận đồng ý lúc {new Date(clientConsentAt).toLocaleString('vi-VN')}. Đang chờ người dân ký số.</p>
+                    <ContractPresentationViewer active={presentationActive} compact presentation={presentation} />
+                  </>
+                ) : !notarySignedAt ? (
+                  <>
+                    <p className="confirmation-note">
+                      {requiresTemplate && clientSignedAt
+                        ? `Người dân đã ký số lúc ${new Date(clientSignedAt).toLocaleString('vi-VN')}.`
+                        : `Người dân đã xác nhận đối soát lúc ${new Date(clientConsentAt).toLocaleString('vi-VN')}.`}
+                    </p>
+                    <div className="notary-control-grid">
+                      <button type="button" className="primary-btn" onClick={() => setShowSignModal(true)} disabled={busy || isSigning}>
+                        {requiresTemplate ? 'Ký số hợp đồng' : 'Ký số chứng thực'}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="confirmation-note">Công chứng viên đã ký số lúc {new Date(notarySignedAt).toLocaleString('vi-VN')}. Hồ sơ đã chuyển sang chờ thanh toán.</p>
+                )}
+
+                {sessionStarted && presentationActive ? (
+                  <div className="evidence-panel">
+                    <div className="evidence-panel-head">
+                      <b>Bằng chứng đối chiếu</b>
+                      <span>{evidenceSnapshots.length} ảnh</span>
+                    </div>
+                    {evidenceSnapshots.length === 0 ? (
+                      <p>Chưa có ảnh chụp CCCD/Hộ chiếu trong phiên.</p>
+                    ) : (
+                      <div className="evidence-grid">
+                        {evidenceSnapshots.map((snapshot) => (
+                          <figure key={snapshot.id}>
+                            <img src={snapshot.dataUrl} alt="Ảnh bằng chứng đối chiếu" />
+                            <figcaption>{new Date(snapshot.capturedAt).toLocaleTimeString('vi-VN')}</figcaption>
+                          </figure>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+          </aside>
         </section>
 
         <footer className="video-room-controls">
@@ -642,113 +1463,139 @@ export function VideoRoomPage() {
           <button type="button" className="link-btn" onClick={handleToggleMic} disabled={busy || !localStreamRef.current}>
             {micOn ? 'Tắt mic' : 'Bật mic'}
           </button>
-          {canEndSession ? (
-            <>
-              <button type="button" className="secondary-btn" onClick={() => setShowSignModal(true)} disabled={busy || !peerConnected}>
-                ✎ Ký số hợp đồng
-              </button>
-              <button type="button" className="primary-btn" onClick={handleEndSession} disabled={busy || isEnding}>
-                {isEnding ? 'Đang kết thúc...' : 'Kết thúc phiên'}
-              </button>
-            </>
+          {canEndSession && sessionStarted ? (
+            <button type="button" className="ghost-btn danger" onClick={handleEndSession} disabled={busy || isEnding}>
+              {isEnding ? 'Đang kết thúc...' : 'Đóng cầu truyền hình'}
+            </button>
           ) : null}
           <button type="button" className="ghost-btn" onClick={handleLeaveRoom} disabled={busy || isEnding}>
             Rời phòng
           </button>
         </footer>
 
-        {/* Signature Modal */}
         {showSignModal ? (
-          <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.5)',
-            zIndex: 10000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-            <div style={{
-              background: 'white',
-              borderRadius: '8px',
-              padding: '2rem',
-              maxWidth: '500px',
-              width: '90%',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-            }}>
-              <h2 style={{ marginTop: 0 }}>Ký điện tử hợp đồng</h2>
-              <p style={{ color: '#666', marginBottom: '1.5rem' }}>
-                Nhấn nút "Ký số" để xác nhận ký điện tử hợp đồng công chứng.
-                <br />
-                Chữ ký sẽ được lưu vào hệ thống và không thể thay đổi.
-              </p>
-
-              {signatureData ? (
-                <div style={{ marginBottom: '1.5rem', textAlign: 'center' }}>
-                  <div style={{
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    padding: '1rem',
-                    background: '#f9f9f9',
-                  }}>
-                    <div style={{ fontSize: '0.9rem', color: '#666', marginBottom: '0.5rem' }}>
-                      Chữ ký đã được ghi lại:
-                    </div>
-                    <div style={{
-                      height: '80px',
-                      background: 'white',
-                      border: '1px solid #e0e0e0',
-                      borderRadius: '4px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#666',
-                    }}>
-                      ✓ Chữ ký hợp lệ
-                    </div>
-                  </div>
+          <div className="signature-modal-backdrop">
+            <section className="signature-modal" role="dialog" aria-modal="true" aria-labelledby="signature-modal-title">
+              <div className="signature-modal-head">
+                <div>
+                  <span className="panel-eyebrow">{isClient ? 'Người dân ký' : 'Công chứng viên ký'}</span>
+                  <h2 id="signature-modal-title">{requiresTemplate ? 'Ký lên văn bản công chứng' : 'Ký số chứng thực'}</h2>
                 </div>
-              ) : null}
-
-              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
                 <button
                   type="button"
                   className="ghost-btn"
                   onClick={() => {
                     setShowSignModal(false);
                     setSignatureData(null);
+                    setSignatureTouched(false);
+                    setPlacementPreviewError('');
+                  }}
+                  disabled={isSigning}
+                >
+                  Đóng
+                </button>
+              </div>
+
+              <div className="signature-modal-body">
+                <div className="signature-pad-panel">
+                  <div className="signature-section-head">
+                    <div>
+                      <h3>Vẽ chữ ký</h3>
+                      <p>Ký trực tiếp trong khung bên dưới.</p>
+                    </div>
+                    <button type="button" className="ghost-btn" onClick={handleClearSignature} disabled={isSigning}>
+                      Xóa
+                    </button>
+                  </div>
+                  <canvas
+                    ref={signatureCanvasRef}
+                    className="signature-pad-canvas"
+                    onPointerDown={handleSignaturePointerDown}
+                    onPointerMove={handleSignaturePointerMove}
+                    onPointerUp={handleSignaturePointerUp}
+                    onPointerCancel={handleSignaturePointerUp}
+                  />
+                </div>
+
+                <div className="signature-placement-panel">
+                  <div className="signature-section-head">
+                    <div>
+                      <h3>Chọn vị trí trên PDF</h3>
+                      <p>Bấm vào đúng trang tài liệu để đặt vùng chữ ký.</p>
+                    </div>
+                    <label className="signature-page-input">
+                      Trang
+                      <input
+                        type="number"
+                        min={1}
+                        value={signaturePlacement.pageNumber}
+                        onChange={(event) => setSignaturePlacement((current) => ({
+                          ...current,
+                          pageNumber: Math.max(1, Number(event.target.value) || 1),
+                        }))}
+                        disabled={isSigning}
+                      />
+                    </label>
+                  </div>
+                  <div
+                    className={`signature-pdf-placement ${signaturePageImageUrl && !placementPreviewError ? 'has-document' : 'is-placeholder'}`}
+                    onClick={handlePickSignaturePlacement}
+                  >
+                    {signaturePageImageUrl && !placementPreviewError ? (
+                      <img
+                        src={signaturePageImageUrl}
+                        alt={`Trang ${signaturePlacement.pageNumber} của ${presentation.title}`}
+                        draggable={false}
+                        onError={() => setPlacementPreviewError('Không thể hiển thị trang PDF này. Vui lòng kiểm tra số trang hoặc mở lại tài liệu.')}
+                      />
+                    ) : (
+                      <div className="signature-placement-placeholder">
+                        {placementPreviewError || 'Chưa có tài liệu PDF để chọn vị trí ký.'}
+                      </div>
+                    )}
+                    {signaturePageImageUrl && !placementPreviewError ? (
+                      <div
+                        className="signature-placement-box"
+                        style={{
+                          left: `${signaturePlacement.xPercent}%`,
+                          top: `${signaturePlacement.yPercent}%`,
+                          width: `${signaturePlacement.widthPercent}%`,
+                          height: `${signaturePlacement.heightPercent}%`,
+                        }}
+                      >
+                        Chữ ký
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              {signatureData ? <p className="confirmation-note">Chữ ký đã được gửi lên hệ thống.</p> : null}
+
+              <div className="signature-modal-actions">
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => {
+                    setShowSignModal(false);
+                    setSignatureData(null);
+                    setSignatureTouched(false);
+                    setPlacementPreviewError('');
                   }}
                   disabled={isSigning}
                 >
                   Hủy
                 </button>
-                {!signatureData ? (
-                  <button
-                    type="button"
-                    className="primary-btn"
-                    onClick={handleSignContract}
-                    disabled={isSigning}
-                  >
-                    {isSigning ? 'Đang ký số...' : '✎ Ký số'}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="primary-btn"
-                    onClick={() => {
-                      alert('Ký số hợp đồng thành công! Hợp đồng đã được lưu trong hệ thống.');
-                      setShowSignModal(false);
-                      setSignatureData(null);
-                    }}
-                  >
-                    Xác nhận ký số
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="primary-btn"
+                  onClick={handleSignContract}
+                  disabled={isSigning || !signatureTouched || (requiresTemplate && (!signaturePageImageUrl || !!placementPreviewError))}
+                >
+                  {isSigning ? 'Đang ghi chữ ký lên PDF...' : 'Xác nhận ký'}
+                </button>
               </div>
-            </div>
+            </section>
           </div>
         ) : null}
       </div>

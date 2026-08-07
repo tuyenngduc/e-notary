@@ -19,9 +19,13 @@ const statusMeta: Record<string, { label: string; tone: string }> = {
 
 const contractTypeLabels: Record<string, string> = {
   TRANSFER_OF_PROPERTY: 'Hợp đồng chuyển nhượng',
-  POWER_OF_ATTORNEY: 'Ủy quyền',
+  POWER_OF_ATTORNEY: 'Giấy ủy quyền',
+  PERSONAL_COMMITMENT: 'Văn bản cam kết cá nhân',
+  SIGNATURE_CERTIFICATION: 'Xác nhận chữ ký',
+  E_COPY_CERTIFICATION: 'Chứng thực bản sao',
   LOAN_AGREEMENT: 'Hợp đồng vay mượn',
   WILL: 'Di chúc',
+  CIVIL_AGREEMENT: 'Thỏa thuận dân sự',
   MARRIAGE_CONTRACT: 'Hợp đồng hôn nhân',
   BUSINESS_CONTRACT: 'Hợp đồng thương mại',
   OTHER: 'Loại khác',

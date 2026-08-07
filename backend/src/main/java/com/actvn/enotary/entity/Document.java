@@ -1,6 +1,5 @@
 package com.actvn.enotary.entity;
 
-import com.actvn.enotary.enums.DocType;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -20,9 +19,11 @@ public class Document {
     private NotaryRequest request;
 
     private String filePath;
+    private String originalFileName;
+    private String contentType;
+    private Long fileSize;
 
-    @Enumerated(EnumType.STRING)
-    private DocType docType;
+    private String docType;
 
     private String fileHash;
     private OffsetDateTime createdAt = OffsetDateTime.now();

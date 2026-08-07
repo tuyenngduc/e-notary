@@ -2,6 +2,10 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import React, { useEffect, useState } from 'react';
 import { getProfileApi } from '../features/profile/profileApi';
+import {
+  getUnreadNotificationCountApi,
+  NOTIFICATIONS_UPDATED_EVENT,
+} from '../features/notifications/notificationApi';
 import type { UserProfile } from '../types/profile';
 
 interface DashboardLayoutProps {
@@ -14,6 +18,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   useEffect(() => {
     if (session?.token) {
@@ -22,6 +27,39 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         .catch(() => {});
     }
   }, [session?.token]);
+
+  useEffect(() => {
+    if (role !== 'customer' || !session?.token) {
+      setUnreadNotifications(0);
+      return;
+    }
+
+    let active = true;
+
+    const loadUnreadCount = async () => {
+      try {
+        const count = await getUnreadNotificationCountApi();
+        if (active) {
+          setUnreadNotifications(count);
+        }
+      } catch {
+        if (active) {
+          setUnreadNotifications(0);
+        }
+      }
+    };
+
+    void loadUnreadCount();
+    const intervalId = window.setInterval(() => void loadUnreadCount(), 30000);
+    const handleNotificationsUpdated = () => void loadUnreadCount();
+    window.addEventListener(NOTIFICATIONS_UPDATED_EVENT, handleNotificationsUpdated);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener(NOTIFICATIONS_UPDATED_EVENT, handleNotificationsUpdated);
+    };
+  }, [role, session?.token, location.pathname]);
 
   const handleLogout = async () => {
     await logout();
@@ -32,6 +70,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     { name: 'Trang chủ', path: '/customer/dashboard', icon: <HomeIcon /> },
     { name: 'Thông tin cá nhân', path: '/profile', icon: <UserIcon /> },
     { name: 'Yêu cầu công chứng', path: '/customer/requests', icon: <PlusIcon /> },
+    { name: 'Thông báo', path: '/customer/notifications', icon: <BellIcon />, badge: unreadNotifications },
   ];
 
   const notaryLinks = [
@@ -44,8 +83,10 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const adminLinks = [
     { name: 'Dashboard', path: '/admin/dashboard', icon: <HomeIcon /> },
     { name: 'Quản lý Người dùng', path: '/admin/users', icon: <UserIcon /> },
-    { name: 'Bảng giá Dịch vụ', path: '/admin/services', icon: <ListIcon /> },
-    { name: 'Mẫu văn bản', path: '/admin/templates', icon: <DocumentIcon /> },
+    { name: 'Danh mục giấy tờ', path: '/admin/document-types', icon: <DocumentIcon /> },
+    { name: 'Cấu hình hồ sơ', path: '/admin/document-requirements', icon: <DocumentIcon /> },
+    { name: 'Văn phòng công chứng', path: '/admin/offices', icon: <BuildingIcon /> },
+    { name: 'Blockchain Besu', path: '/admin/blockchain', icon: <BlockchainIcon /> },
   ];
 
   const links =
@@ -67,16 +108,22 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           </Link>
         </div>
         <nav className="sidebar-nav">
-          {links.map((link) => (
-            <Link
-              key={link.path}
-              to={link.path}
-              className={`sidebar-link ${location.pathname === link.path ? 'active' : ''}`}
-            >
-              {link.icon}
-              {link.name}
-            </Link>
-          ))}
+          {links.map((link) => {
+            const badge = 'badge' in link && typeof link.badge === 'number' ? link.badge : 0;
+            return (
+              <Link
+                key={link.path}
+                to={link.path}
+                className={`sidebar-link ${location.pathname === link.path ? 'active' : ''}`}
+              >
+                {link.icon}
+                <span className="sidebar-link-text">{link.name}</span>
+                {badge > 0 ? (
+                  <span className="sidebar-link-badge">{badge > 99 ? '99+' : badge}</span>
+                ) : null}
+              </Link>
+            );
+          })}
         </nav>
         <div className="sidebar-footer" style={{ padding: '0.75rem' }}>
           <button type="button" className="ghost-btn w-full" onClick={handleLogout} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'flex-start', color: '#ef4444', fontSize: '0.95rem', padding: '0.4rem 0.75rem', fontWeight: 500 }}>
@@ -88,11 +135,13 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
       <div className="main-area">
         <header className="topbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>
-              Xin chào, {profile?.verificationStatus === 'VERIFIED' && profile?.fullName ? profile.fullName : (session?.email || 'Người dùng')}
-            </span>
-          </div>
+          {role !== 'admin' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>
+                Xin chào, {profile?.verificationStatus === 'VERIFIED' && profile?.fullName ? profile.fullName : (session?.email || 'Người dùng')}
+              </span>
+            </div>
+          ) : null}
         </header>
         {role === 'notary' && profile?.verificationStatus !== 'VERIFIED' ? (
           <div style={{ padding: '0 2rem' }}>
@@ -179,6 +228,34 @@ function CalendarIcon() {
   );
 }
 
+function BellIcon() {
+  return (
+    <svg viewBox="0 0 24 24">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
+      <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+    </svg>
+  );
+}
+
+function BuildingIcon() {
+  return (
+    <svg viewBox="0 0 24 24">
+      <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
+      <line x1="9" y1="22" x2="9" y2="18"></line>
+      <line x1="15" y1="22" x2="15" y2="18"></line>
+      <line x1="8" y1="6" x2="8.01" y2="6"></line>
+      <line x1="12" y1="6" x2="12.01" y2="6"></line>
+      <line x1="16" y1="6" x2="16.01" y2="6"></line>
+      <line x1="8" y1="10" x2="8.01" y2="10"></line>
+      <line x1="12" y1="10" x2="12.01" y2="10"></line>
+      <line x1="16" y1="10" x2="16.01" y2="10"></line>
+      <line x1="8" y1="14" x2="8.01" y2="14"></line>
+      <line x1="12" y1="14" x2="12.01" y2="14"></line>
+      <line x1="16" y1="14" x2="16.01" y2="14"></line>
+    </svg>
+  );
+}
+
 function DocumentIcon() {
   return (
     <svg viewBox="0 0 24 24">
@@ -187,6 +264,21 @@ function DocumentIcon() {
       <line x1="16" y1="13" x2="8" y2="13"></line>
       <line x1="16" y1="17" x2="8" y2="17"></line>
       <polyline points="10 9 9 9 8 9"></polyline>
+    </svg>
+  );
+}
+
+function BlockchainIcon() {
+  return (
+    <svg viewBox="0 0 24 24">
+      <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+      <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+      <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+      <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+      <line x1="10" y1="6.5" x2="14" y2="6.5"></line>
+      <line x1="6.5" y1="10" x2="6.5" y2="14"></line>
+      <line x1="17.5" y1="10" x2="17.5" y2="14"></line>
+      <line x1="10" y1="17.5" x2="14" y2="17.5"></line>
     </svg>
   );
 }
